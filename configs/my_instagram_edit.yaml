@@ -1,0 +1,107 @@
+# My Instagram Edit Configuration
+# 
+# This config demonstrates all the new features:
+# - Preview mode for fast iteration
+# - Crop from bottom
+# - Multiple timed neon text overlays (with % width sizing)
+# - Sound effects with fadeout
+# - In-video transitions
+# - Auto font download from Google Fonts
+
+# Input/Output
+input_files:
+  - /Users/karel.cervicek/Documents/media/marketing/prispevek7/en/davinci_out.mov
+output_path: /Users/karel.cervicek/Documents/media/marketing/prispevek7/en/output.mov
+
+# ============================================================
+# PREVIEW MODE - Fast rendering for testing
+# ============================================================
+# Set preview_mode: true to render only a portion of the video
+# Output will be: output_preview.mp4 (fast H.264 instead of ProRes)
+preview_mode: true  # Change to true for quick previews
+
+preview:
+  start_time: 0.5     # Start from this time (seconds)
+  end_time: 5.0       # End at this time (seconds)
+  scale: null         # Optional: 0.5 for half resolution (faster)
+# ============================================================
+
+# Crop settings - remove percentage from edges
+crop:
+  top: 0
+  bottom: 10    # Remove 10% from bottom
+  left: 0
+  right: 0
+
+# In-video transitions - add slide transitions at these times
+# Leave empty [] for no transitions
+in_video_transitions: []
+# Example: [3.0, 6.0]  # Transitions at 3s and 6s
+
+# Transition settings
+transition_type: slide
+transition_duration: 0.3
+
+# Neon text overlays - multiple texts at specific times
+# width_percent: Text width as % of video width (e.g., 50 = text is 50% of video width)
+text_overlays:
+  - name: text_378
+    text: "378"
+    start_time: 1.0
+    duration: 0.5
+    position: ["center", "center"]
+    futuristic: true
+    width_percent: 40  # Text will be 40% of video width
+    
+  - name: text_five
+    text: "five !"
+    start_time: 4.0
+    duration: 2.0
+    position: ["center", "center"]
+    futuristic: true
+    width_percent: 50  # Text will be 50% of video width
+    
+  - name: text_24months
+    text: "24 months"
+    start_time: 8.0
+    duration: 2.5
+    position: ["center", "center"]
+    futuristic: true
+    width_percent: 70  # Text will be 70% of video width
+
+# Sound effects configuration
+sound_effects:
+  folder: effects_sound   # Folder containing your sound files
+  fadeout: true           # Apply fadeout to sounds
+  fadeout_duration: 1.0   # Fadeout duration in seconds
+  sounds:
+    - name: descent_whoosh.mp3
+      time: 1.0
+      volume: 0.8
+    # Example:
+    # - name: whoosh.mp3
+    #   time: 1.0
+    #   volume: 0.8
+    # - name: impact.wav
+    #   time: 4.0
+    #   volume: 0.7
+    # - name: success.mp3
+    #   time: 8.0
+    #   volume: 0.6
+
+# Neon effect settings (applies to all text overlays)
+# Font will be auto-downloaded from Google Fonts if not found locally
+neon_settings:
+  color: "#39FF14"        # Neon green
+  glow_intensity: 2.0
+  glow_radius: 15
+  pulse: true
+  pulse_speed: 3.0
+  font: "Bebas Neue"      # Modern, technical font (auto-downloaded)
+  font_size: 72           # Used as fallback if width_percent not specified
+  secondary_color: "#00FFFF"  # Cyan for futuristic effect
+
+# Export settings
+export:
+  preset: prores_422_hq   # ProRes 422 HQ, 10-bit
+  # Other options: h264_high, h264_web, instagram

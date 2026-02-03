@@ -1,0 +1,82 @@
+# VideoPipe - Default Pipeline Configuration
+# 
+# This configuration file defines the default settings for video processing.
+# Override any setting by creating your own config file or using CLI arguments.
+
+# Input/Output
+input_files: []  # List of input video file paths
+output_path: null  # Output file path (auto-generated if not specified)
+
+# Export Settings (ProRes 422 HQ 10-bit by default)
+export_settings:
+  codec: prores_ks
+  profile: 3  # 0=Proxy, 1=LT, 2=Standard, 3=HQ, 4=4444
+  pix_fmt: yuv422p10le  # 10-bit 4:2:2
+  audio_codec: pcm_s24le
+  quality: 9  # 1-31, lower is better
+
+# Subtitle Settings
+subtitle_settings:
+  font: Arial-Bold
+  font_size: 48
+  color: white
+  stroke_color: black
+  stroke_width: 2
+  position:
+    - center
+    - bottom
+  margin_bottom: 50
+  margin_sides: 40
+  bg_color: null  # Set to color for background box
+  bg_opacity: 0.6
+  fade_in: 0.1
+  fade_out: 0.1
+
+# Neon Effect Settings (for special words)
+neon_settings:
+  color: "#39FF14"  # Neon green
+  glow_intensity: 1.5
+  glow_radius: 10
+  glow_layers: 3
+  pulse: true
+  pulse_speed: 2.0
+  pulse_min_intensity: 0.7
+  pulse_max_intensity: 1.0
+  font: Arial-Bold
+  font_size: 64
+
+# Transition Settings
+transition_settings:
+  duration: 0.5
+  type: slide  # slide, crossfade, wipe
+  direction: left  # left, right, up, down
+  easing: ease_in_out_expo
+  motion_blur: true
+  shadow: true
+  shadow_width: 30
+  shadow_opacity: 0.3
+
+# Special Words (words to highlight with effects)
+# Format: word: {effect config}
+special_words: {}
+# Example:
+#   amazing:
+#     type: neon
+#     color: "#39FF14"
+#   incredible:
+#     type: neon
+#     color: "#00FFFF"
+
+# Pipeline Stages (order matters)
+pipeline_stages:
+  - load_videos
+  - generate_subtitles
+  - render_subtitles
+  - apply_transitions
+  - export
+
+# Whisper Settings
+whisper_model: medium  # tiny, base, small, medium, large, large-v2, large-v3
+
+# Debug mode (keeps intermediate files, verbose logging)
+debug: false

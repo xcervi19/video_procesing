@@ -1,0 +1,40 @@
+# VideoPipe - Video Processing Pipeline Dependencies
+# 
+# Core dependencies for the video processing pipeline.
+# Install with: pip install -r requirements.txt
+
+# Video Processing
+moviepy>=2.0.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# Audio/Video Backend
+# Note: FFmpeg must be installed separately on your system
+# macOS: brew install ffmpeg
+# Ubuntu: sudo apt install ffmpeg
+# Windows: Download from https://ffmpeg.org/download.html
+
+# Speech-to-Text (Whisper)
+# Choose one of the following:
+# Option 1: faster-whisper (recommended for speed)
+faster-whisper>=1.0.0
+# Option 2: openai-whisper (original implementation)
+# openai-whisper>=20231117
+
+# PyTorch (required for Whisper)
+# Install the appropriate version for your system:
+# CPU only: pip install torch
+# CUDA: pip install torch --index-url https://download.pytorch.org/whl/cu118
+# Apple Silicon: pip install torch (uses MPS automatically)
+torch>=2.0.0
+
+# Configuration
+PyYAML>=6.0
+
+# Development Dependencies (optional)
+# Uncomment for development:
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
+# black>=23.0.0
+# ruff>=0.1.0
+# mypy>=1.5.0

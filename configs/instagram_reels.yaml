@@ -1,0 +1,86 @@
+# VideoPipe - Instagram Reels Optimized Configuration
+#
+# This configuration is optimized for Instagram Reels content:
+# - Quick transitions
+# - Bold subtitles
+# - Eye-catching neon effects
+
+# Export Settings (Instagram optimized)
+export_settings:
+  codec: libx264
+  profile: high
+  pix_fmt: yuv420p
+  video_bitrate: 8M
+  audio_codec: aac
+  audio_bitrate: 256k
+  fps: 30
+
+# Subtitle Settings (bold and visible on mobile)
+subtitle_settings:
+  font: Arial-Bold
+  font_size: 56  # Larger for mobile viewing
+  color: white
+  stroke_color: black
+  stroke_width: 3  # Thicker stroke for visibility
+  position:
+    - center
+    - bottom
+  margin_bottom: 80  # More space from bottom for Instagram UI
+  margin_sides: 30
+  bg_color: null
+  bg_opacity: 0.7
+  fade_in: 0.05  # Quick transitions
+  fade_out: 0.05
+
+# Neon Effect Settings (punchy and vibrant)
+neon_settings:
+  color: "#39FF14"  # Bright neon green
+  glow_intensity: 2.0  # Stronger glow
+  glow_radius: 12
+  glow_layers: 4
+  pulse: true
+  pulse_speed: 3.0  # Faster pulse
+  pulse_min_intensity: 0.6
+  pulse_max_intensity: 1.0
+  font: Arial-Bold
+  font_size: 72
+
+# Transition Settings (quick and snappy)
+transition_settings:
+  duration: 0.3  # Quick transitions
+  type: slide
+  direction: left
+  easing: ease_out_expo  # Fast start, smooth end
+  motion_blur: true
+  motion_blur_samples: 3
+  shadow: true
+  shadow_width: 20
+  shadow_opacity: 0.5
+
+# Example special words for engagement
+special_words:
+  wow:
+    type: neon
+    color: "#FF00FF"
+  amazing:
+    type: neon
+    color: "#39FF14"
+  epic:
+    type: neon
+    color: "#00FFFF"
+  insane:
+    type: neon
+    color: "#FF3366"
+
+# Pipeline for Instagram content
+pipeline_stages:
+  - load_videos
+  - generate_subtitles
+  - render_subtitles
+  - apply_transitions
+  - export
+
+# Use smaller model for faster processing
+whisper_model: small
+
+debug: false
