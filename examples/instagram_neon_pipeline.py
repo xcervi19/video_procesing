@@ -270,6 +270,10 @@ def create_pipeline_from_config(config_path: Path):
         _pdbg("E", "pipeline:text_overlay_creating", "Creating CreateNeonTextOverlay", {"name": node_name, "width_percent_value": width_percent_value, "type": str(type(width_percent_value))})
         # #endregion
         
+        # Get animation settings (can be per-overlay or global)
+        animation_type = overlay.get("animation") or config.get("default_animation")
+        animation_config = overlay.get("animation_config") or config.get("animation_config", {})
+        
         text_node = CreateNeonTextOverlay(
             name=node_name,
             text=overlay["text"],
@@ -279,6 +283,8 @@ def create_pipeline_from_config(config_path: Path):
             futuristic=overlay.get("futuristic", True),
             neon_config=overlay_neon_config,
             width_percent=width_percent_value,
+            animation=animation_type,
+            animation_config=animation_config,
         )
         text_node._dependencies = [last_node]  # Chain to previous
         pipeline.add_node(text_node)

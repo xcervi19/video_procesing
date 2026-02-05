@@ -42,32 +42,52 @@ in_video_transitions: []
 transition_type: slide
 transition_duration: 0.3
 
+# ============================================================
+# TEXT ANIMATION SETTINGS
+# ============================================================
+# Available animations: typewriter, pop_in, fade, none
+# Default applies to all text overlays unless overridden
+default_animation: typewriter
+
+# Animation timing configuration
+animation_config:
+  chars_per_second: 15      # Typewriter speed (characters per second)
+  entrance_duration: 0.4    # Duration of entrance animation
+  exit_duration: 0.3        # Duration of fade out
+  fade_out: true            # Whether to fade out at end
+  entrance_easing: ease_out_expo    # Smooth professional easing
+  exit_easing: ease_in_out_quad     # Smooth exit
+
 # Neon text overlays - multiple texts at specific times
 # width_percent: Text width as % of video width (e.g., 50 = text is 50% of video width)
+# animation: Override default animation (typewriter, pop_in, fade, none)
 text_overlays:
   - name: text_378
     text: "378"
     start_time: 1.0
-    duration: 0.5
+    duration: 1.5
     position: ["center", "center"]
-    futuristic: true
-    width_percent: 40  # Text will be 40% of video width
+    futuristic: false       # Use animated text instead of neon glow
+    width_percent: 40
+    animation: typewriter   # Smooth typewriter effect
     
   - name: text_five
     text: "five !"
-    start_time: 4.0
+    start_time: 3.0
     duration: 2.0
     position: ["center", "center"]
-    futuristic: true
-    width_percent: 50  # Text will be 50% of video width
+    futuristic: false
+    width_percent: 50
+    animation: pop_in       # Pop-in with scale effect
     
   - name: text_24months
     text: "24 months"
     start_time: 8.0
     duration: 2.5
     position: ["center", "center"]
-    futuristic: true
-    width_percent: 70  # Text will be 70% of video width
+    futuristic: false
+    width_percent: 70
+    animation: typewriter
 
 # Sound effects configuration
 sound_effects:
@@ -92,14 +112,17 @@ sound_effects:
 # Neon effect settings (applies to all text overlays)
 # Font will be auto-downloaded from Google Fonts if not found locally
 neon_settings:
-  color: "#39FF14"        # Neon green
-  glow_intensity: 2.0
-  glow_radius: 15
-  pulse: true
+  color: "#39FF14"        # Neon green for visible glow effect
+  glow_intensity: 2.5     # Higher intensity for more visible glow
+  glow_radius: 25         # Larger base radius (auto-scaled for large fonts)
+  glow_layers: 4          # More glow layers for smoother effect
+  pulse: false            # Disable pulse during animation for cleaner look
   pulse_speed: 3.0
   font: "Bebas Neue"      # Modern, technical font (auto-downloaded)
   font_size: 72           # Used as fallback if width_percent not specified
   secondary_color: "#00FFFF"  # Cyan for futuristic effect
+  stroke_color: "#000000" # Black outline for contrast
+  stroke_width: 2         # Thinner outline to not cover glow
 
 # Export settings
 export:

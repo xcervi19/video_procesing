@@ -13,7 +13,14 @@ from typing import Any, Optional
 from videopipe.core.node import Node, NodeResult
 from videopipe.core.context import PipelineContext
 from videopipe.effects.neon import NeonGlowEffect, FuturisticTextEffect, NeonConfig
-from videopipe.effects.text_effects import TextAnimator, PopInEffect, ScaleEffect
+from videopipe.effects.text_effects import (
+    TextAnimator, 
+    PopInEffect, 
+    ScaleEffect,
+    ProfessionalTextAnimation,
+    ProfessionalAnimationConfig,
+    AnimationTiming,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +151,18 @@ class ApplyNeonEffectNode(Node):
 # #region agent log
 import json as _json_debug
 import time as _time_debug
+import os as _os_debug
 _DEBUG_LOG_PATH = "/Users/karel.cervicek/Documents/projects/video_procesing/.cursor/debug.log"
+_os_debug.makedirs(_os_debug.path.dirname(_DEBUG_LOG_PATH), exist_ok=True)
+print("[DEBUG] effect_nodes.py module loading...")
 def _dbg(hyp, loc, msg, data):
-    with open(_DEBUG_LOG_PATH, "a") as f: f.write(_json_debug.dumps({"hypothesisId": hyp, "location": loc, "message": msg, "data": data, "timestamp": _time_debug.time()}) + "\n")
+    try:
+        with open(_DEBUG_LOG_PATH, "a") as f: f.write(_json_debug.dumps({"hypothesisId": hyp, "location": loc, "message": msg, "data": data, "timestamp": _time_debug.time()}) + "\n")
+        print(f"[DEBUG] Logged: {hyp} - {loc}")
+    except Exception as e:
+        print(f"[DEBUG LOG ERROR] {e}")
+_dbg("MODULE", "effect_nodes:load", "Module loaded", {})
+print("[DEBUG] effect_nodes.py module loaded successfully")
 # #endregion
 
 def _calculate_font_size_for_width(
@@ -298,17 +314,21 @@ class CreateNeonTextOverlay(Node):
     """
     Create standalone neon text overlays at specific times.
     
-    Useful for titles, lower thirds, or call-to-action text
-    with the neon glow effect.
+    Supports professional animations including:
+    - typewriter: Characters appear one by one with smooth fade
+    - pop_in: Text scales up with bounce effect
+    - fade: Simple fade in/out
+    - none: No animation, instant appear/disappear
     
     Example:
-        # Text at 1 second, sized to 50% of video width
+        # Typewriter animation with 50% width
         CreateNeonTextOverlay(
             name="text1",
             text="378",
             start_time=1.0,
             duration=2.0,
-            width_percent=50,  # Text will be 50% of video width
+            width_percent=50,
+            animation="typewriter",
         )
     """
     
@@ -323,6 +343,8 @@ class CreateNeonTextOverlay(Node):
         neon_config: Optional[dict[str, Any]] = None,
         futuristic: bool = True,
         width_percent: Optional[float] = None,
+        animation: Optional[str] = None,
+        animation_config: Optional[dict[str, Any]] = None,
     ):
         """
         Initialize neon text overlay node.
@@ -338,6 +360,12 @@ class CreateNeonTextOverlay(Node):
             futuristic: Use futuristic effect (True) or basic neon (False)
             width_percent: Text width as percentage of video width (e.g., 50 = 50%)
                           If None, uses font_size from neon_config
+            animation: Animation type: "typewriter", "pop_in", "fade", or None
+            animation_config: Optional animation settings:
+                - chars_per_second: For typewriter (default: 15)
+                - entrance_duration: Animation entrance time (default: 0.4)
+                - exit_duration: Fade out time (default: 0.3)
+                - fade_out: Whether to fade out (default: True)
         """
         node_name = name or f"neon_overlay_{text[:10]}" if text else "create_neon_overlay"
         super().__init__(
@@ -352,6 +380,8 @@ class CreateNeonTextOverlay(Node):
         self.neon_config = neon_config or {}
         self.futuristic = futuristic
         self.width_percent = width_percent
+        self.animation = animation
+        self.animation_config = animation_config or {}
     
     def process(self, context: PipelineContext) -> NodeResult:
         # #region agent log
@@ -418,32 +448,93 @@ class CreateNeonTextOverlay(Node):
                 _dbg("G", "CreateNeonTextOverlay:process:font_size_default", "Using default font size (width_percent is None)", {"calculated_font_size": calculated_font_size})
                 # #endregion
             
+            # Scale glow_radius proportionally to font size for visible effect
+            # Use config value as base, but scale up for large fonts
+            base_glow_radius = neon_settings.get("glow_radius", 15)
+            # For font sizes > 100, scale glow radius proportionally (about 8-10% of font size)
+            scaled_glow_radius = max(base_glow_radius, int(calculated_font_size * 0.08))
+            
             neon_cfg = NeonConfig(
                 color=neon_settings.get("color", "#39FF14"),
                 glow_intensity=neon_settings.get("glow_intensity", 1.5),
-                glow_radius=neon_settings.get("glow_radius", 15),
+                glow_radius=scaled_glow_radius,
                 pulse=neon_settings.get("pulse", True),
                 pulse_speed=neon_settings.get("pulse_speed", 2.0),
                 font=font_name,
                 font_size=calculated_font_size,
             )
             
-            # Create neon text clip
-            if self.futuristic:
-                effect = FuturisticTextEffect(
-                    config=neon_cfg,
-                    secondary_color=neon_settings.get("secondary_color", "#00FFFF"),
+            # #region agent log
+            _dbg("GLOW", "CreateNeonTextOverlay:glow_scaling", "Glow radius scaled", {"base": base_glow_radius, "scaled": scaled_glow_radius, "font_size": calculated_font_size})
+            # #endregion
+            
+            # Check if animation is requested
+            animation_type = self.animation or self.neon_config.get("animation")
+            
+            # #region agent log
+            _dbg("A", "CreateNeonTextOverlay:branch_check", "Checking animation vs neon branch", {"animation_type": animation_type, "futuristic": self.futuristic, "has_animation": bool(animation_type and animation_type != "none")})
+            # #endregion
+            
+            if animation_type and animation_type != "none":
+                # Use professional animation system
+                # #region agent log
+                _dbg("B", "CreateNeonTextOverlay:animation_branch", "TOOK ANIMATION BRANCH with neon_config", {"type": animation_type, "neon_cfg_color": neon_cfg.color, "neon_cfg_glow_intensity": neon_cfg.glow_intensity})
+                # #endregion
+                
+                # Build animation config
+                anim_settings = {
+                    **self.animation_config,
+                    **self.neon_config.get("animation_config", {}),
+                }
+                
+                anim_config = ProfessionalAnimationConfig(
+                    animation_type=animation_type,
+                    chars_per_second=anim_settings.get("chars_per_second", 15.0),
+                    entrance_duration=anim_settings.get("entrance_duration", 0.4),
+                    exit_duration=anim_settings.get("exit_duration", 0.3),
+                    entrance_easing=anim_settings.get("entrance_easing", "ease_out_expo"),
+                    exit_easing=anim_settings.get("exit_easing", "ease_in_out_quad"),
+                    fade_out=anim_settings.get("fade_out", True),
+                    scale_start=anim_settings.get("scale_start", 0.8),
+                    scale_end=anim_settings.get("scale_end", 1.0),
                 )
-                text_clip = effect.create_futuristic_text(
-                    self.text,
-                    duration=actual_duration,
+                
+                # Create animated text WITH neon glow effect
+                animator = ProfessionalTextAnimation(anim_config)
+                text_clip = animator.create_animated_text(
+                    text=self.text,
+                    total_duration=actual_duration,
+                    font=font_name,
+                    font_size=calculated_font_size,
+                    color=neon_settings.get("color", "#39FF14"),
+                    stroke_color=neon_settings.get("stroke_color"),
+                    stroke_width=neon_settings.get("stroke_width", 0),
+                    neon_config=neon_cfg,  # Pass neon config for glow effect!
+                )
+                
+                logger.info(
+                    f"Created animated text: '{self.text}' with {animation_type} animation + neon glow"
                 )
             else:
-                effect = NeonGlowEffect(config=neon_cfg)
-                text_clip = effect.create_neon_text(
-                    self.text,
-                    duration=actual_duration,
-                )
+                # Use original neon effect (no entrance/exit animation)
+                # #region agent log
+                _dbg("C", "CreateNeonTextOverlay:neon_branch", "TOOK NEON BRANCH - animation SKIPPED", {"futuristic": self.futuristic})
+                # #endregion
+                if self.futuristic:
+                    effect = FuturisticTextEffect(
+                        config=neon_cfg,
+                        secondary_color=neon_settings.get("secondary_color", "#00FFFF"),
+                    )
+                    text_clip = effect.create_futuristic_text(
+                        self.text,
+                        duration=actual_duration,
+                    )
+                else:
+                    effect = NeonGlowEffect(config=neon_cfg)
+                    text_clip = effect.create_neon_text(
+                        self.text,
+                        duration=actual_duration,
+                    )
             
             # Set start time and position
             text_clip = text_clip.with_start(self.start_time)
@@ -458,7 +549,7 @@ class CreateNeonTextOverlay(Node):
             
             logger.info(
                 f"Created neon overlay: '{self.text}' at {self.start_time}s for {actual_duration}s "
-                f"(font_size={calculated_font_size})"
+                f"(font_size={calculated_font_size}, animation={animation_type or 'none'})"
             )
             
             return NodeResult.success_result(
@@ -467,6 +558,7 @@ class CreateNeonTextOverlay(Node):
                 start_time=self.start_time,
                 duration=actual_duration,
                 font_size=calculated_font_size,
+                animation=animation_type,
             )
             
         except Exception as e:
