@@ -590,21 +590,23 @@ class AddSoundEffectNode(Node):
         config: Optional[dict[str, Any]] = None,
         effects_folder: Optional[Path | str] = None,
         sounds: Optional[list[dict[str, Any]]] = None,
-        fadeout: bool = True,
-        fadeout_duration: float = 1.0,
-        default_volume: float = 1.0,
+        fadeout: Optional[bool] = None,
+        fadeout_duration: Optional[float] = None,
+        default_volume: Optional[float] = None,
     ):
         """
         Initialize sound effect node.
         
         Args:
-            config: Node configuration
+            config: Node configuration (supports sound_effects or background_sound_intro)
             effects_folder: Path to folder containing sound effect files
             sounds: List of sound effect entries:
                 - name: Filename of the sound effect
+                - effect: Alias for name
                 - time: When to play the sound (seconds)
                 - volume: Optional volume multiplier (0.0-1.0)
                 - fadeout: Optional override for fadeout (True/False)
+                - fadeout_duration: Optional override for fadeout duration (seconds)
             fadeout: Default fadeout setting for all sounds
             fadeout_duration: Duration of volume fadeout in seconds
             default_volume: Default volume for sounds (0.0-1.0)
@@ -614,11 +616,90 @@ class AddSoundEffectNode(Node):
             config=config,
             dependencies=["load_videos"],
         )
-        self.effects_folder = Path(effects_folder) if effects_folder else None
-        self.sounds = sounds or []
-        self.fadeout = fadeout
-        self.fadeout_duration = fadeout_duration
-        self.default_volume = default_volume
+        sound_config = self._normalize_sound_effects_config(config or {})
+
+        resolved_folder = effects_folder or sound_config.get("folder")
+        self.effects_folder = Path(resolved_folder) if resolved_folder else None
+
+        self.sounds = sounds if sounds is not None else sound_config.get("sounds", [])
+        self.fadeout = fadeout if fadeout is not None else sound_config.get("fadeout", True)
+        self.fadeout_duration = (
+            fadeout_duration
+            if fadeout_duration is not None
+            else sound_config.get("fadeout_duration", 1.0)
+        )
+        self.default_volume = (
+            default_volume
+            if default_volume is not None
+            else sound_config.get("default_volume", 1.0)
+        )
+
+    @staticmethod
+    def _normalize_sound_effects_config(config: dict[str, Any]) -> dict[str, Any]:
+        """
+        Normalize sound effect configuration.
+
+        Supports:
+        - sound_effects: {folder, fadeout, fadeout_duration, default_volume, sounds: []}
+        - background_sound_intro: {folder, name/effect, time, volume, ...}
+        - background_sound_intro: [{name/effect, time, ...}, ...]
+        """
+        normalized: dict[str, Any] = {}
+        sounds: list[dict[str, Any]] = []
+
+        sound_effects = config.get("sound_effects")
+        if isinstance(sound_effects, dict):
+            normalized.update(sound_effects)
+            sounds.extend(sound_effects.get("sounds", []) or [])
+        elif isinstance(sound_effects, list):
+            sounds.extend(sound_effects)
+
+        background_intro = config.get("background_sound_intro")
+        if isinstance(background_intro, dict):
+            # Allow background_sound_intro to define global defaults
+            for key in ("folder", "fadeout", "fadeout_duration", "default_volume"):
+                if key in background_intro and key not in normalized:
+                    normalized[key] = background_intro[key]
+
+            intro_sounds: list[dict[str, Any]] = []
+            if isinstance(background_intro.get("sounds"), list):
+                intro_sounds = background_intro.get("sounds", [])
+            else:
+                intro_entry = {
+                    key: background_intro[key]
+                    for key in (
+                        "name",
+                        "effect",
+                        "time",
+                        "volume",
+                        "fadeout",
+                        "fadeout_duration",
+                    )
+                    if key in background_intro
+                }
+                if intro_entry:
+                    intro_sounds = [intro_entry]
+
+            sounds.extend(intro_sounds)
+
+        elif isinstance(background_intro, list):
+            sounds.extend(background_intro)
+
+        # Normalize entries and aliases
+        cleaned_sounds: list[dict[str, Any]] = []
+        for entry in sounds:
+            if not isinstance(entry, dict):
+                continue
+            normalized_entry = entry.copy()
+            if "effect" in normalized_entry and "name" not in normalized_entry:
+                normalized_entry["name"] = normalized_entry.pop("effect")
+            cleaned_sounds.append(normalized_entry)
+
+        if cleaned_sounds and "folder" not in normalized:
+            normalized["folder"] = "effects_sound"
+
+        normalized["sounds"] = cleaned_sounds
+        return normalized
     
     def validate(self, context: PipelineContext) -> bool:
         # #region agent log
@@ -683,10 +764,13 @@ class AddSoundEffectNode(Node):
             sounds_added = 0
             
             for sound_config in self.sounds:
-                sound_name = sound_config.get("name", "")
+                sound_name = sound_config.get("name") or sound_config.get("effect") or ""
                 sound_time = sound_config.get("time", 0)
                 sound_volume = sound_config.get("volume", self.default_volume)
                 sound_fadeout = sound_config.get("fadeout", self.fadeout)
+                sound_fadeout_duration = sound_config.get(
+                    "fadeout_duration", self.fadeout_duration
+                )
                 
                 sound_path = self.effects_folder / sound_name
                 
@@ -714,8 +798,8 @@ class AddSoundEffectNode(Node):
                     sound_clip = sound_clip.with_volume_scaled(sound_volume)
                 
                 # Apply fadeout
-                if sound_fadeout and self.fadeout_duration > 0:
-                    fade_duration = min(self.fadeout_duration, sound_clip.duration)
+                if sound_fadeout and sound_fadeout_duration > 0:
+                    fade_duration = min(sound_fadeout_duration, sound_clip.duration)
                     sound_clip = sound_clip.with_effects([AudioFadeOut(fade_duration)])
                 
                 # Set start time

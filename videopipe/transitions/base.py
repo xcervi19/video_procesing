@@ -17,7 +17,19 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import numpy as np
-from moviepy import VideoClip, VideoFileClip, CompositeVideoClip, concatenate_videoclips
+from moviepy import (
+    VideoClip,
+    VideoFileClip,
+    CompositeVideoClip,
+    CompositeAudioClip,
+    concatenate_videoclips,
+)
+try:
+    from moviepy.audio.fx import AudioFadeIn, AudioFadeOut
+except ImportError:  # Fallback for older MoviePy versions
+    from moviepy.audio.fx import AudioFadeOut
+
+    AudioFadeIn = None
 
 if TYPE_CHECKING:
     from videopipe.core.context import PipelineContext
@@ -103,6 +115,48 @@ class Transition(ABC):
         self.duration = duration
         self.easing = easing
         self._easing_func = EASING_FUNCTIONS.get(easing, EASING_FUNCTIONS["linear"])
+
+    def _build_audio(
+        self,
+        clip_a: VideoClip,
+        clip_b: VideoClip,
+        result_duration: float,
+    ) -> Optional[CompositeAudioClip]:
+        """
+        Build a composite audio track for the transition.
+
+        Preserves audio across the overlap so sound effects remain aligned
+        even when clips are cut and blended.
+        """
+        if clip_a.audio is None and clip_b.audio is None:
+            return None
+
+        transition_start = max(clip_a.duration - self.duration, 0)
+        crossfade = (
+            clip_a.audio is not None
+            and clip_b.audio is not None
+            and self.duration > 0
+        )
+
+        audio_clips = []
+
+        if clip_a.audio is not None:
+            audio_a = clip_a.audio
+            if crossfade:
+                fade_duration = min(self.duration, audio_a.duration)
+                audio_a = audio_a.with_effects([AudioFadeOut(fade_duration)])
+            audio_clips.append(audio_a)
+
+        if clip_b.audio is not None:
+            audio_b = clip_b.audio
+            if crossfade and AudioFadeIn is not None:
+                fade_duration = min(self.duration, audio_b.duration)
+                audio_b = audio_b.with_effects([AudioFadeIn(fade_duration)])
+            audio_b = audio_b.with_start(transition_start)
+            audio_clips.append(audio_b)
+
+        composite = CompositeAudioClip(audio_clips)
+        return composite.with_duration(result_duration)
     
     @abstractmethod
     def make_frame(
@@ -184,7 +238,13 @@ class Transition(ABC):
         if clip_b_part:
             clips.append(clip_b_part)
         
-        return concatenate_videoclips(clips, method="compose")
+        result = concatenate_videoclips(clips, method="compose")
+
+        audio = self._build_audio(clip_a, clip_b, result.duration)
+        if audio is not None:
+            result = result.with_audio(audio)
+
+        return result
 
 
 # ==================== Common Transitions ====================

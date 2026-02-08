@@ -36,6 +36,19 @@ sound_effects:
       volume: 0.7
 ```
 
+## Background Sound Intro
+
+For a single timed intro sound with fadeout:
+
+```yaml
+background_sound_intro:
+  folder: effects_sound
+  name: descent_whoosh.mp3
+  time: 1.0
+  volume: 0.8
+  fadeout_duration: 1.0
+```
+
 ## Recommended Sound Effects for Instagram
 
 - **Whoosh** - For text appearances

@@ -70,6 +70,24 @@ special_words: {}
 #     type: neon
 #     color: "#00FFFF"
 
+# Background sound intro (single timed sound with fadeout)
+# background_sound_intro:
+#   folder: effects_sound
+#   name: descent_whoosh.mp3
+#   time: 1.0
+#   volume: 0.8
+#   fadeout_duration: 1.0
+
+# Sound effects (multiple sounds with fadeout)
+# sound_effects:
+#   folder: effects_sound
+#   fadeout: true
+#   fadeout_duration: 1.0
+#   sounds:
+#     - name: whoosh.mp3
+#       time: 1.0
+#       volume: 0.8
+
 # Pipeline Stages (order matters)
 pipeline_stages:
   - load_videos

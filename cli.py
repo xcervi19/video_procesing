@@ -45,6 +45,7 @@ def cmd_process(args):
         ApplyTransitionNode,
         GenerateSubtitlesNode,
         RenderSubtitlesNode,
+        AddSoundEffectNode,
         ExportNode,
     )
     
@@ -89,29 +90,55 @@ def cmd_process(args):
     
     # Build pipeline
     pipeline = Pipeline(name="VideoPipeline")
-    
-    # Add nodes based on options
-    pipeline.add_node(LoadVideosNode())
-    
+
+    # Add nodes based on options (explicit dependency chaining)
+    last_node = None
+
+    load_node = LoadVideosNode()
+    pipeline.add_node(load_node)
+    last_node = load_node.name
+
     if args.transition and len(config.input_files) > 1:
-        pipeline.add_node(ApplyTransitionNode(
+        transition_node = ApplyTransitionNode(
             transition_type=args.transition,
             transition_duration=args.transition_duration or 0.5,
-        ))
+        )
+        transition_node._dependencies = [last_node]
+        pipeline.add_node(transition_node)
+        last_node = transition_node.name
     elif len(config.input_files) > 1:
-        pipeline.add_node(MergeVideosNode())
-    
+        merge_node = MergeVideosNode()
+        merge_node._dependencies = [last_node]
+        pipeline.add_node(merge_node)
+        last_node = merge_node.name
+
     if args.subtitles:
-        pipeline.add_node(GenerateSubtitlesNode(
+        generate_node = GenerateSubtitlesNode(
             whisper_model=config.whisper_model,
-        ))
-        pipeline.add_node(RenderSubtitlesNode(
+        )
+        generate_node._dependencies = [last_node]
+        pipeline.add_node(generate_node)
+        last_node = generate_node.name
+
+        render_node = RenderSubtitlesNode(
             animated=not args.no_animate,
-        ))
-    
-    pipeline.add_node(ExportNode(
+        )
+        render_node._dependencies = [last_node]
+        pipeline.add_node(render_node)
+        last_node = render_node.name
+
+    # Background sound intro / sound effects (optional)
+    if config.sound_effects or config.background_sound_intro:
+        sound_node = AddSoundEffectNode(config=config.to_dict())
+        sound_node._dependencies = [last_node] if last_node else []
+        pipeline.add_node(sound_node)
+        last_node = sound_node.name
+
+    export_node = ExportNode(
         preset=args.preset or "prores_422_hq",
-    ))
+    )
+    export_node._dependencies = [last_node] if last_node else []
+    pipeline.add_node(export_node)
     
     # Show dry run if requested
     if args.dry_run:

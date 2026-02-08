@@ -72,6 +72,8 @@ class PipelineConfig:
         neon_settings: Settings for neon text effects
         transition_settings: Default transition settings
         special_words: Words to highlight with special effects
+        sound_effects: Timed sound effects configuration
+        background_sound_intro: Background sound intro configuration
         pipeline_stages: List of pipeline stages to execute
         whisper_model: Whisper model size for transcription
         debug: Enable debug mode
@@ -94,6 +96,8 @@ class PipelineConfig:
     )
     
     special_words: dict[str, dict[str, Any]] = field(default_factory=dict)
+    sound_effects: dict[str, Any] = field(default_factory=dict)
+    background_sound_intro: dict[str, Any] = field(default_factory=dict)
     
     pipeline_stages: list[str] = field(default_factory=lambda: [
         "load_videos",
@@ -153,6 +157,12 @@ class PipelineConfig:
         # Special words
         if "special_words" in data:
             config.special_words = data["special_words"]
+
+        # Sound effects
+        if "sound_effects" in data:
+            config.sound_effects = data["sound_effects"]
+        if "background_sound_intro" in data:
+            config.background_sound_intro = data["background_sound_intro"]
         
         # Pipeline stages
         if "pipeline_stages" in data:
@@ -177,6 +187,8 @@ class PipelineConfig:
             "neon_settings": self.neon_settings,
             "transition_settings": self.transition_settings,
             "special_words": self.special_words,
+            "sound_effects": self.sound_effects,
+            "background_sound_intro": self.background_sound_intro,
             "pipeline_stages": self.pipeline_stages,
             "whisper_model": self.whisper_model,
             "debug": self.debug,
