@@ -21,6 +21,7 @@ from videopipe.nodes.subtitle_nodes import (
 from videopipe.nodes.effect_nodes import (
     ApplyEffectsNode,
     ApplyNeonEffectNode,
+    ApplySpokenWordHighlightNode,
     CreateNeonTextOverlay,
     AddSoundEffectNode,
     ChangeSpeedNode,
@@ -38,6 +39,7 @@ __all__ = [
     "RenderSubtitlesNode",
     "ApplyEffectsNode",
     "ApplyNeonEffectNode",
+    "ApplySpokenWordHighlightNode",
     "CreateNeonTextOverlay",
     "AddSoundEffectNode",
     "ChangeSpeedNode",
