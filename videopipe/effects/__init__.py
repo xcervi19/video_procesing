@@ -11,6 +11,7 @@ from videopipe.effects.text_effects import (
     ScaleEffect,
 )
 from videopipe.effects.neon import NeonGlowEffect, FuturisticTextEffect
+from videopipe.effects.speed import change_speed_preserve_pitch
 
 __all__ = [
     "TextAnimator",
@@ -19,4 +20,5 @@ __all__ = [
     "ScaleEffect",
     "NeonGlowEffect",
     "FuturisticTextEffect",
+    "change_speed_preserve_pitch",
 ]

@@ -8,6 +8,9 @@ moviepy>=2.0.0
 numpy>=1.24.0
 Pillow>=10.0.0
 
+# Speed change with pitch-preserved audio (high-quality time-stretch)
+librosa>=0.10.0
+
 # Audio/Video Backend
 # Note: FFmpeg must be installed separately on your system
 # macOS: brew install ffmpeg

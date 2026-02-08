@@ -21,6 +21,7 @@ from videopipe.effects.text_effects import (
     ProfessionalAnimationConfig,
     AnimationTiming,
 )
+from videopipe.effects.speed import change_speed_preserve_pitch
 
 logger = logging.getLogger(__name__)
 
@@ -753,4 +754,77 @@ class AddSoundEffectNode(Node):
             # #region agent log
             _debug_log("S2", "effect_nodes.py:process_exception", "EXCEPTION in AddSoundEffectNode", {"error": str(e), "type": type(e).__name__})
             # #endregion
+            return NodeResult.failure_result(e)
+
+
+class ChangeSpeedNode(Node):
+    """
+    Change video playback speed while preserving audio pitch.
+
+    Uses high-quality time-stretching (phase vocoder via librosa) so that
+    speech and music keep their original pitch at the new speed.
+
+    Example:
+        ChangeSpeedNode(speed_factor=1.5)   # 50% faster
+        ChangeSpeedNode(speed_factor=0.5)   # Half speed (slow motion)
+        # From config:
+        ChangeSpeedNode()  # uses context.config["speed_factor"]
+    """
+
+    def __init__(
+        self,
+        config: Optional[dict[str, Any]] = None,
+        speed_factor: Optional[float] = None,
+        name: Optional[str] = None,
+    ):
+        """
+        Initialize speed change node.
+
+        Args:
+            config: Node configuration
+            speed_factor: Speed multiplier (e.g. 2.0 = 2x faster, 0.5 = half speed).
+                          If None, reads from config["speed_factor"].
+            name: Optional unique node name (default: "change_speed")
+        """
+        super().__init__(
+            name=name or "change_speed",
+            config=config,
+            dependencies=["load_videos"],
+        )
+        self.speed_factor = speed_factor
+
+    def process(self, context: PipelineContext) -> NodeResult:
+        try:
+            clip = context.get_main_clip()
+            if clip is None:
+                return NodeResult.failure_result(ValueError("No main clip"))
+
+            factor = self.speed_factor
+            if factor is None:
+                factor = context.config.get("speed_factor")
+            if factor is None:
+                logger.warning("No speed_factor set; leaving clip unchanged")
+                return NodeResult.success_result(output=clip)
+
+            if factor <= 0:
+                return NodeResult.failure_result(
+                    ValueError(f"speed_factor must be positive, got {factor}")
+                )
+
+            result = change_speed_preserve_pitch(clip, factor)
+            context.set_main_clip(result)
+
+            logger.info(
+                f"Speed changed by factor {factor}: "
+                f"duration {clip.duration:.2f}s -> {result.duration:.2f}s (pitch preserved)"
+            )
+
+            return NodeResult.success_result(
+                output=result,
+                speed_factor=factor,
+                original_duration=clip.duration,
+                new_duration=result.duration,
+            )
+
+        except Exception as e:
             return NodeResult.failure_result(e)

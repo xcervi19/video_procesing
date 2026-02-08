@@ -7,6 +7,9 @@
 input_files: []  # List of input video file paths
 output_path: null  # Output file path (auto-generated if not specified)
 
+# Speed (optional). Use change_speed node and set speed_factor:
+# speed_factor: 1.5   # 1.5x faster (pitch preserved); 0.5 = half speed
+
 # Export Settings (ProRes 422 HQ 10-bit by default)
 export_settings:
   codec: prores_ks
