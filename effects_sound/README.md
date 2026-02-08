@@ -20,10 +20,10 @@ effects_sound/
 
 ## Usage in Config
 
-Reference sounds by filename in your config:
+Reference sounds by filename in your config (sound_effects also supported):
 
 ```yaml
-sound_effects:
+background_sound_intro:
   folder: effects_sound
   fadeout: true
   fadeout_duration: 1.0
@@ -34,6 +34,24 @@ sound_effects:
     - name: impact.wav
       time: 4.0
       volume: 0.7
+```
+
+Automatic insertion (silence detection):
+
+```yaml
+automatic_intro_background_sound:
+  enabled: true
+  folder: effects_sound
+  sound: whoosh.mp3
+  volume: 0.8
+  fadeout: true
+  fadeout_duration: 1.0
+  min_silence_duration: 1.0
+  silence_threshold: 0.001
+  analysis_fps: 100
+  max_insertions: 1
+  insert_at: start
+  insert_offset: 0.0
 ```
 
 ## Recommended Sound Effects for Instagram

@@ -23,6 +23,7 @@ from videopipe.nodes.effect_nodes import (
     ApplyNeonEffectNode,
     CreateNeonTextOverlay,
     AddSoundEffectNode,
+    AutomaticIntroBackgroundSoundNode,
     ChangeSpeedNode,
 )
 
@@ -40,5 +41,6 @@ __all__ = [
     "ApplyNeonEffectNode",
     "CreateNeonTextOverlay",
     "AddSoundEffectNode",
+    "AutomaticIntroBackgroundSoundNode",
     "ChangeSpeedNode",
 ]

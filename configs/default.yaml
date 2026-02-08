@@ -70,6 +70,35 @@ special_words: {}
 #     type: neon
 #     color: "#00FFFF"
 
+# Background sound intro (manual timing)
+# background_sound_intro:
+#   enabled: true
+#   folder: effects_sound
+#   fadeout: true
+#   fadeout_duration: 1.0
+#   default_volume: 1.0
+#   sounds:
+#     - name: whoosh.mp3
+#       time: 1.0
+#       volume: 0.8
+
+# Automatic intro background sound (silence detection)
+# automatic_intro_background_sound:
+#   enabled: false
+#   folder: effects_sound
+#   sound: whoosh.mp3
+#   volume: 0.8
+#   fadeout: true
+#   fadeout_duration: 1.0
+#   min_silence_duration: 1.0
+#   silence_threshold: 0.001
+#   analysis_fps: 100
+#   max_insertions: 1
+#   insert_at: start
+#   insert_offset: 0.0
+#   search_start: 0.0
+#   search_end: null
+
 # Pipeline Stages (order matters)
 pipeline_stages:
   - load_videos

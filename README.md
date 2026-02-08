@@ -11,6 +11,7 @@ A configurable, AI-powered video editing pipeline designed for continuous develo
 - **Neon Effects**: Futuristic neon green glow effects for special words
 - **Professional Transitions**: Quick slide transitions with motion blur
 - **ProRes 422 HQ Export**: 10-bit professional quality output
+- **Background Sound Intros**: Manual or automatic sound effect insertion
 - **Extensible Architecture**: Plugin-based system for adding new effects and transitions
 
 ## Installation

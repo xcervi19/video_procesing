@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
+
 from videopipe.core.node import Node, NodeResult
 from videopipe.core.context import PipelineContext
 from videopipe.effects.neon import NeonGlowEffect, FuturisticTextEffect, NeonConfig
@@ -566,6 +568,164 @@ class CreateNeonTextOverlay(Node):
             return NodeResult.failure_result(e)
 
 
+def _resolve_sound_name(sound_config: dict[str, Any]) -> str:
+    """Resolve a sound filename from config entries."""
+    return sound_config.get("name") or sound_config.get("sound") or ""
+
+
+def _apply_sound_effects_to_clip(
+    clip: Any,
+    effects_folder: Path,
+    sounds: list[dict[str, Any]],
+    fadeout: bool,
+    fadeout_duration: float,
+    default_volume: float,
+) -> tuple[Any, int]:
+    """Apply sound effects to a clip, trimming to clip duration."""
+    from moviepy import AudioFileClip, CompositeAudioClip
+    from moviepy.audio.fx import AudioFadeOut
+
+    audio_clips = []
+    if clip.audio is not None:
+        audio_clips.append(clip.audio)
+
+    sounds_added = 0
+    for sound_config in sounds:
+        sound_name = _resolve_sound_name(sound_config)
+        if not sound_name:
+            logger.warning("Sound entry missing name; skipping")
+            continue
+
+        sound_time = float(sound_config.get("time", 0))
+        if sound_time < 0:
+            logger.warning(f"Sound time {sound_time}s is negative; skipping '{sound_name}'")
+            continue
+        if sound_time >= clip.duration:
+            logger.warning(
+                f"Sound time {sound_time}s exceeds clip duration {clip.duration:.2f}s; "
+                f"skipping '{sound_name}'"
+            )
+            continue
+
+        sound_volume = float(sound_config.get("volume", default_volume))
+        sound_fadeout = sound_config.get("fadeout", fadeout)
+        sound_fadeout_duration = float(
+            sound_config.get("fadeout_duration", fadeout_duration)
+        )
+
+        sound_path = effects_folder / sound_name
+        if not sound_path.exists():
+            logger.warning(f"Sound file not found, skipping: {sound_path}")
+            continue
+
+        sound_clip = AudioFileClip(str(sound_path))
+        remaining_duration = max(0.0, clip.duration - sound_time)
+        if remaining_duration <= 0:
+            continue
+
+        if sound_clip.duration > remaining_duration:
+            sound_clip = sound_clip.subclipped(0, remaining_duration)
+
+        if sound_volume != 1.0:
+            sound_clip = sound_clip.with_volume_scaled(sound_volume)
+
+        if sound_fadeout and sound_fadeout_duration > 0:
+            fade_duration = min(sound_fadeout_duration, sound_clip.duration)
+            sound_clip = sound_clip.with_effects([AudioFadeOut(fade_duration)])
+
+        sound_clip = sound_clip.with_start(sound_time)
+        audio_clips.append(sound_clip)
+        sounds_added += 1
+
+        logger.debug(
+            f"Added sound '{sound_name}' at {sound_time}s "
+            f"(volume={sound_volume}, fadeout={sound_fadeout})"
+        )
+
+    if sounds_added > 0:
+        composite_audio = CompositeAudioClip(audio_clips)
+        result = clip.with_audio(composite_audio)
+    else:
+        result = clip
+
+    return result, sounds_added
+
+
+def _detect_silence_segments(
+    audio_clip: Any,
+    start_time: float,
+    end_time: float,
+    analysis_fps: int,
+    silence_threshold: float,
+    min_silence_duration: float,
+) -> list[tuple[float, float]]:
+    """Detect silent segments in an audio clip."""
+    if end_time <= start_time or analysis_fps <= 0:
+        return []
+
+    step = 1.0 / analysis_fps
+    times = np.arange(start_time, end_time, step)
+    if times.size == 0:
+        return []
+
+    frames = np.asarray(audio_clip.get_frame(times))
+    if frames.ndim == 1:
+        frames = frames.reshape(-1, 1)
+    elif frames.shape[0] != len(times) and frames.shape[1] == len(times):
+        frames = frames.T
+
+    rms = np.sqrt(np.mean(frames**2, axis=1))
+    silent_mask = rms <= silence_threshold
+
+    min_samples = max(1, int(min_silence_duration * analysis_fps))
+    segments = []
+    start_idx = None
+
+    for idx, is_silent in enumerate(silent_mask):
+        if is_silent and start_idx is None:
+            start_idx = idx
+        elif not is_silent and start_idx is not None:
+            end_idx = idx - 1
+            if end_idx - start_idx + 1 >= min_samples:
+                segments.append((start_idx, end_idx))
+            start_idx = None
+
+    if start_idx is not None:
+        end_idx = len(silent_mask) - 1
+        if end_idx - start_idx + 1 >= min_samples:
+            segments.append((start_idx, end_idx))
+
+    return [
+        (start_time + start / analysis_fps, start_time + (end + 1) / analysis_fps)
+        for start, end in segments
+    ]
+
+
+def _select_intro_times(
+    silence_segments: list[tuple[float, float]],
+    insert_at: str,
+    insert_offset: float,
+    max_insertions: int,
+) -> list[float]:
+    """Select intro times from silent segments."""
+    insert_at_normalized = (insert_at or "start").lower()
+    times: list[float] = []
+
+    for start, end in silence_segments:
+        if insert_at_normalized == "center":
+            candidate = (start + end) / 2
+        elif insert_at_normalized == "end":
+            candidate = max(start, end - insert_offset)
+        else:
+            candidate = min(end, start + insert_offset)
+
+        times.append(candidate)
+        if max_insertions and len(times) >= max_insertions:
+            break
+
+    return times
+
+
 class AddSoundEffectNode(Node):
     """
     Add sound effects from a folder at specific times.
@@ -645,7 +805,12 @@ class AddSoundEffectNode(Node):
         
         # Validate sound files exist
         for sound in self.sounds:
-            sound_path = self.effects_folder / sound.get("name", "")
+            sound_name = _resolve_sound_name(sound)
+            if not sound_name:
+                logger.error("Sound entry missing name in configuration")
+                return False
+
+            sound_path = self.effects_folder / sound_name
             if not sound_path.exists():
                 logger.error(f"Sound file not found: {sound_path}")
                 # #region agent log
@@ -664,9 +829,6 @@ class AddSoundEffectNode(Node):
         # #endregion
         
         try:
-            from moviepy import AudioFileClip, CompositeAudioClip
-            from moviepy.audio.fx import AudioFadeOut
-            
             clip = context.get_main_clip()
             if clip is None:
                 return NodeResult.failure_result(ValueError("No main clip"))
@@ -675,71 +837,22 @@ class AddSoundEffectNode(Node):
                 logger.info("No sounds specified, skipping")
                 return NodeResult.success_result(output=clip)
             
-            # Get the original audio (if any)
-            audio_clips = []
-            if clip.audio is not None:
-                audio_clips.append(clip.audio)
-            
-            sounds_added = 0
-            
-            for sound_config in self.sounds:
-                sound_name = sound_config.get("name", "")
-                sound_time = sound_config.get("time", 0)
-                sound_volume = sound_config.get("volume", self.default_volume)
-                sound_fadeout = sound_config.get("fadeout", self.fadeout)
-                
-                sound_path = self.effects_folder / sound_name
-                
-                # #region agent log
-                _debug_log("S2", "effect_nodes.py:loading_sound", "Loading sound", {"sound_path": str(sound_path), "exists": sound_path.exists()})
-                # #endregion
-                
-                if not sound_path.exists():
-                    logger.warning(f"Sound file not found, skipping: {sound_path}")
-                    continue
-                
-                # Load sound effect
-                # #region agent log
-                _debug_log("S2", "effect_nodes.py:before_audio_load", "About to load AudioFileClip", {"path": str(sound_path)})
-                # #endregion
-                
-                sound_clip = AudioFileClip(str(sound_path))
-                
-                # #region agent log
-                _debug_log("S2", "effect_nodes.py:after_audio_load", "AudioFileClip loaded", {"duration": sound_clip.duration})
-                # #endregion
-                
-                # Apply volume
-                if sound_volume != 1.0:
-                    sound_clip = sound_clip.with_volume_scaled(sound_volume)
-                
-                # Apply fadeout
-                if sound_fadeout and self.fadeout_duration > 0:
-                    fade_duration = min(self.fadeout_duration, sound_clip.duration)
-                    sound_clip = sound_clip.with_effects([AudioFadeOut(fade_duration)])
-                
-                # Set start time
-                sound_clip = sound_clip.with_start(sound_time)
-                
-                audio_clips.append(sound_clip)
-                sounds_added += 1
-                
-                logger.debug(
-                    f"Added sound '{sound_name}' at {sound_time}s "
-                    f"(volume={sound_volume}, fadeout={sound_fadeout})"
-                )
-            
+            # #region agent log
+            _debug_log("S2", "effect_nodes.py:apply_sound_effects", "Applying sound effects", {"effects_folder": str(self.effects_folder)})
+            # #endregion
+
+            result, sounds_added = _apply_sound_effects_to_clip(
+                clip=clip,
+                effects_folder=self.effects_folder,
+                sounds=self.sounds,
+                fadeout=self.fadeout,
+                fadeout_duration=self.fadeout_duration,
+                default_volume=self.default_volume,
+            )
+
             if sounds_added > 0:
-                # Composite all audio
-                composite_audio = CompositeAudioClip(audio_clips)
-                
-                # Set audio on clip
-                result = clip.with_audio(composite_audio)
                 context.set_main_clip(result)
-                
                 logger.info(f"Added {sounds_added} sound effect(s)")
-            else:
-                result = clip
             
             # #region agent log
             _debug_log("S2", "effect_nodes.py:process_success", "AddSoundEffectNode SUCCESS", {"sounds_added": sounds_added})
@@ -754,6 +867,204 @@ class AddSoundEffectNode(Node):
             # #region agent log
             _debug_log("S2", "effect_nodes.py:process_exception", "EXCEPTION in AddSoundEffectNode", {"error": str(e), "type": type(e).__name__})
             # #endregion
+            return NodeResult.failure_result(e)
+
+
+class AutomaticIntroBackgroundSoundNode(Node):
+    """
+    Automatically insert a background intro sound after detecting silence.
+    """
+
+    def __init__(
+        self,
+        config: Optional[dict[str, Any]] = None,
+        effects_folder: Optional[Path | str] = None,
+        sound_name: Optional[str] = None,
+        enabled: Optional[bool] = None,
+        fadeout: Optional[bool] = None,
+        fadeout_duration: Optional[float] = None,
+        default_volume: Optional[float] = None,
+        min_silence_duration: Optional[float] = None,
+        silence_threshold: Optional[float] = None,
+        analysis_fps: Optional[int] = None,
+        max_insertions: Optional[int] = None,
+        insert_at: Optional[str] = None,
+        insert_offset: Optional[float] = None,
+        search_start: Optional[float] = None,
+        search_end: Optional[float] = None,
+    ):
+        super().__init__(
+            name="automatic_intro_background_sound",
+            config=config,
+            dependencies=["load_videos"],
+        )
+        self.effects_folder = Path(effects_folder) if effects_folder else None
+        self.sound_name = sound_name
+        self.enabled = enabled
+        self.fadeout = fadeout
+        self.fadeout_duration = fadeout_duration
+        self.default_volume = default_volume
+        self.min_silence_duration = min_silence_duration
+        self.silence_threshold = silence_threshold
+        self.analysis_fps = analysis_fps
+        self.max_insertions = max_insertions
+        self.insert_at = insert_at
+        self.insert_offset = insert_offset
+        self.search_start = search_start
+        self.search_end = search_end
+
+    def process(self, context: PipelineContext) -> NodeResult:
+        try:
+            clip = context.get_main_clip()
+            if clip is None:
+                return NodeResult.failure_result(ValueError("No main clip"))
+
+            auto_config = context.config.get("automatic_intro_background_sound", {})
+            enabled = (
+                self.enabled
+                if self.enabled is not None
+                else auto_config.get("enabled", True)
+            )
+            if not enabled:
+                logger.info("Automatic intro background sound disabled, skipping")
+                return NodeResult.success_result(output=clip)
+
+            effects_folder = self.effects_folder or Path(
+                auto_config.get("folder", "effects_sound")
+            )
+            sound_name = (
+                self.sound_name
+                or auto_config.get("sound")
+                or auto_config.get("name")
+            )
+
+            if not sound_name:
+                logger.warning("No sound name specified for automatic intro background sound")
+                return NodeResult.success_result(output=clip)
+
+            if not effects_folder.exists():
+                logger.warning(f"Effects folder not found: {effects_folder}")
+                return NodeResult.success_result(output=clip)
+
+            fadeout = (
+                self.fadeout
+                if self.fadeout is not None
+                else auto_config.get("fadeout", True)
+            )
+            fadeout_duration = (
+                self.fadeout_duration
+                if self.fadeout_duration is not None
+                else float(auto_config.get("fadeout_duration", 1.0))
+            )
+            default_volume = (
+                self.default_volume
+                if self.default_volume is not None
+                else float(auto_config.get("volume", 1.0))
+            )
+            min_silence_duration = (
+                self.min_silence_duration
+                if self.min_silence_duration is not None
+                else float(auto_config.get("min_silence_duration", 1.0))
+            )
+            silence_threshold = (
+                self.silence_threshold
+                if self.silence_threshold is not None
+                else float(auto_config.get("silence_threshold", 0.001))
+            )
+            analysis_fps = (
+                self.analysis_fps
+                if self.analysis_fps is not None
+                else int(auto_config.get("analysis_fps", 100))
+            )
+            max_insertions = (
+                self.max_insertions
+                if self.max_insertions is not None
+                else int(auto_config.get("max_insertions", 1))
+            )
+            insert_at = self.insert_at or auto_config.get("insert_at", "start")
+            insert_offset = (
+                self.insert_offset
+                if self.insert_offset is not None
+                else float(auto_config.get("insert_offset", 0.0))
+            )
+            search_start = (
+                self.search_start
+                if self.search_start is not None
+                else float(auto_config.get("search_start", 0.0))
+            )
+            search_end = (
+                self.search_end
+                if self.search_end is not None
+                else auto_config.get("search_end")
+            )
+
+            search_start = max(0.0, search_start)
+            search_end = clip.duration if search_end is None else float(search_end)
+            search_end = min(clip.duration, search_end)
+
+            if search_end <= search_start:
+                logger.warning(
+                    "Automatic intro background sound search window is empty, skipping"
+                )
+                return NodeResult.success_result(output=clip)
+
+            if clip.audio is None:
+                silence_segments = [(search_start, search_end)]
+            else:
+                silence_segments = _detect_silence_segments(
+                    audio_clip=clip.audio,
+                    start_time=search_start,
+                    end_time=search_end,
+                    analysis_fps=analysis_fps,
+                    silence_threshold=silence_threshold,
+                    min_silence_duration=min_silence_duration,
+                )
+
+            if not silence_segments:
+                logger.info(
+                    "No qualifying silence segments found for automatic intro background sound"
+                )
+                return NodeResult.success_result(output=clip)
+
+            intro_times = _select_intro_times(
+                silence_segments=silence_segments,
+                insert_at=insert_at,
+                insert_offset=insert_offset,
+                max_insertions=max_insertions,
+            )
+
+            sounds = [
+                {
+                    "name": sound_name,
+                    "time": intro_time,
+                    "volume": default_volume,
+                    "fadeout": fadeout,
+                    "fadeout_duration": fadeout_duration,
+                }
+                for intro_time in intro_times
+            ]
+
+            result, sounds_added = _apply_sound_effects_to_clip(
+                clip=clip,
+                effects_folder=effects_folder,
+                sounds=sounds,
+                fadeout=fadeout,
+                fadeout_duration=fadeout_duration,
+                default_volume=default_volume,
+            )
+
+            if sounds_added > 0:
+                context.set_main_clip(result)
+                logger.info(
+                    f"Automatic intro background sound inserted {sounds_added} time(s)"
+                )
+
+            return NodeResult.success_result(
+                output=result,
+                sounds_added=sounds_added,
+                intro_times=intro_times,
+            )
+        except Exception as e:
             return NodeResult.failure_result(e)
 
 

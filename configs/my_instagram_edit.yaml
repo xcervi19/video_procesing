@@ -89,11 +89,14 @@ text_overlays:
     width_percent: 70
     animation: typewriter
 
-# Sound effects configuration
-sound_effects:
+# Background sound intro (manual timing)
+# NOTE: "sound_effects" is still supported for backward compatibility.
+background_sound_intro:
+  enabled: true
   folder: effects_sound   # Folder containing your sound files
   fadeout: true           # Apply fadeout to sounds
   fadeout_duration: 1.0   # Fadeout duration in seconds
+  default_volume: 1.0
   sounds:
     - name: descent_whoosh.mp3
       time: 1.0
@@ -108,6 +111,23 @@ sound_effects:
     # - name: success.mp3
     #   time: 8.0
     #   volume: 0.6
+
+# Automatic intro background sound (silence detection)
+automatic_intro_background_sound:
+  enabled: false
+  folder: effects_sound
+  sound: descent_whoosh.mp3
+  volume: 0.8
+  fadeout: true
+  fadeout_duration: 1.0
+  min_silence_duration: 1.0
+  silence_threshold: 0.001
+  analysis_fps: 100
+  max_insertions: 1
+  insert_at: start
+  insert_offset: 0.0
+  search_start: 0.0
+  search_end: null
 
 # Neon effect settings (applies to all text overlays)
 # Font will be auto-downloaded from Google Fonts if not found locally

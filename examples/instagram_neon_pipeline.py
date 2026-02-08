@@ -5,7 +5,7 @@ Instagram Neon Pipeline Example
 This pipeline demonstrates:
 1. Crop bottom by percentage
 2. Multiple timed neon text overlays
-3. Sound effects with fadeout
+3. Background sound intro (manual + automatic)
 4. In-video transitions
 5. ProRes 422 HQ export
 
@@ -32,6 +32,7 @@ from videopipe.nodes import (
     InVideoTransitionNode,
     CreateNeonTextOverlay,
     AddSoundEffectNode,
+    AutomaticIntroBackgroundSoundNode,
     ExportNode,
 )
 from videopipe.utils.fonts import get_font_path_for_config
@@ -290,20 +291,59 @@ def create_pipeline_from_config(config_path: Path):
         pipeline.add_node(text_node)
         last_node = node_name
     
-    # 7. Sound effects (depends on last text overlay or previous)
-    sounds_config = config.get("sound_effects", {})
-    if sounds_config.get("sounds"):
+    # 7. Background sound intro (manual timing)
+    manual_sound_config = (
+        config.get("background_sound_intro")
+        or config.get("sound_effects")
+        or {}
+    )
+    manual_enabled = manual_sound_config.get("enabled", True)
+    if manual_enabled and manual_sound_config.get("sounds"):
         sound_node = AddSoundEffectNode(
-            effects_folder=Path(sounds_config.get("folder", "effects_sound")),
-            sounds=sounds_config["sounds"],
-            fadeout=sounds_config.get("fadeout", True),
-            fadeout_duration=sounds_config.get("fadeout_duration", 1.0),
+            effects_folder=Path(manual_sound_config.get("folder", "effects_sound")),
+            sounds=manual_sound_config["sounds"],
+            fadeout=manual_sound_config.get("fadeout", True),
+            fadeout_duration=manual_sound_config.get("fadeout_duration", 1.0),
+            default_volume=manual_sound_config.get("default_volume", 1.0),
         )
         sound_node._dependencies = [last_node]  # Chain to previous
         pipeline.add_node(sound_node)
         last_node = "add_sound_effects"
+
+    # 8. Automatic intro background sound (silence detection)
+    auto_sound_config = config.get("automatic_intro_background_sound", {})
+    auto_enabled = auto_sound_config.get("enabled", False)
+    if auto_enabled:
+        auto_node = AutomaticIntroBackgroundSoundNode(
+            effects_folder=Path(
+                auto_sound_config.get("folder", "effects_sound")
+            ),
+            sound_name=(
+                auto_sound_config.get("sound")
+                or auto_sound_config.get("name")
+            ),
+            enabled=auto_enabled,
+            fadeout=auto_sound_config.get("fadeout", True),
+            fadeout_duration=auto_sound_config.get("fadeout_duration", 1.0),
+            default_volume=auto_sound_config.get("volume", 1.0),
+            min_silence_duration=auto_sound_config.get(
+                "min_silence_duration", 1.0
+            ),
+            silence_threshold=auto_sound_config.get(
+                "silence_threshold", 0.001
+            ),
+            analysis_fps=auto_sound_config.get("analysis_fps", 100),
+            max_insertions=auto_sound_config.get("max_insertions", 1),
+            insert_at=auto_sound_config.get("insert_at", "start"),
+            insert_offset=auto_sound_config.get("insert_offset", 0.0),
+            search_start=auto_sound_config.get("search_start", 0.0),
+            search_end=auto_sound_config.get("search_end"),
+        )
+        auto_node._dependencies = [last_node]
+        pipeline.add_node(auto_node)
+        last_node = "automatic_intro_background_sound"
     
-    # 8. Export (depends on everything before it)
+    # 9. Export (depends on everything before it)
     export_config = config.get("export", {})
     export_node = ExportNode(
         preset=export_config.get("preset", "prores_422_hq"),
