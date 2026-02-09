@@ -21,8 +21,8 @@ output_path: /Users/karel.cervicek/Documents/media/marketing/prispevek7/en/outpu
 preview_mode: true  # Change to true for quick previews
 
 preview:
-  start_time: 0.5     # Start from this time (seconds)
-  end_time: 5.0       # End at this time (seconds)
+  start_time: 8     # Start from this time (seconds)
+  end_time: 16.0       # End at this time (seconds)
   scale: null         # Optional: 0.5 for half resolution (faster)
 # ============================================================
 
@@ -96,8 +96,8 @@ sound_effects:
   fadeout_duration: 1.0   # Fadeout duration in seconds
   sounds:
     - name: descent_whoosh.mp3
-      time: 1.0
-      volume: 0.8
+      time: 11.0
+      volume: 1.3
     # Example:
     # - name: whoosh.mp3
     #   time: 1.0

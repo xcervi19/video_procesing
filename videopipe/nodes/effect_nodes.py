@@ -397,15 +397,32 @@ class CreateNeonTextOverlay(Node):
                 logger.info("No text specified for neon overlay")
                 return NodeResult.success_result(output=clip)
             
-            # Validate timing
-            if self.start_time >= clip.duration:
-                logger.warning(
-                    f"Start time {self.start_time}s is beyond clip duration {clip.duration}s, skipping"
+            # All config times are absolute (source video). In preview mode convert to clip time.
+            preview_start = (
+                context.metadata.get("preview_start", 0)
+                if context.metadata.get("preview_mode") else 0
+            )
+            start_in_clip = self.start_time - preview_start if preview_start else self.start_time
+            # Skip overlay if entirely outside the trimmed clip
+            if start_in_clip >= clip.duration:
+                logger.debug(
+                    f"Skipping overlay '{self.text}' at source {self.start_time}s "
+                    f"(starts at clip {start_in_clip:.1f}s, clip duration {clip.duration:.1f}s)"
                 )
                 return NodeResult.success_result(output=clip)
+            if start_in_clip + self.duration <= 0:
+                logger.debug(
+                    f"Skipping overlay '{self.text}' at source {self.start_time}s "
+                    f"(entirely before clip start)"
+                )
+                return NodeResult.success_result(output=clip)
+            # Clamp start to clip and trim duration so we don't exceed clip end
+            start_in_clip = max(0.0, start_in_clip)
+            actual_duration = min(self.duration, clip.duration - start_in_clip)
             
-            # Calculate actual duration (don't extend beyond clip)
-            actual_duration = min(self.duration, clip.duration - self.start_time)
+            # Validate
+            if actual_duration <= 0:
+                return NodeResult.success_result(output=clip)
             
             # Build neon config
             neon_settings = {
@@ -537,8 +554,8 @@ class CreateNeonTextOverlay(Node):
                         duration=actual_duration,
                     )
             
-            # Set start time and position
-            text_clip = text_clip.with_start(self.start_time)
+            # Set start time (in clip time) and position
+            text_clip = text_clip.with_start(start_in_clip)
             text_clip = text_clip.with_position(self.position)
             
             # Composite onto main clip
@@ -549,14 +566,14 @@ class CreateNeonTextOverlay(Node):
             context.set_main_clip(result)
             
             logger.info(
-                f"Created neon overlay: '{self.text}' at {self.start_time}s for {actual_duration}s "
+                f"Created neon overlay: '{self.text}' at clip {start_in_clip:.1f}s (source {self.start_time}s) for {actual_duration}s "
                 f"(font_size={calculated_font_size}, animation={animation_type or 'none'})"
             )
             
             return NodeResult.success_result(
                 output=result,
                 text=self.text,
-                start_time=self.start_time,
+                start_time=start_in_clip,
                 duration=actual_duration,
                 font_size=calculated_font_size,
                 animation=animation_type,
@@ -682,9 +699,23 @@ class AddSoundEffectNode(Node):
             
             sounds_added = 0
             
+            # All config times are absolute (source video). In preview mode convert to clip time.
+            preview_start = (
+                context.metadata.get("preview_start", 0)
+                if context.metadata.get("preview_mode") else 0
+            )
+
             for sound_config in self.sounds:
                 sound_name = sound_config.get("name", "")
-                sound_time = sound_config.get("time", 0)
+                sound_time_abs = sound_config.get("time", 0)
+                sound_time = sound_time_abs - preview_start if preview_start else sound_time_abs
+                # Skip if sound falls outside the current (trimmed) clip
+                if sound_time < 0 or sound_time >= clip.duration:
+                    logger.debug(
+                        f"Skipping sound '{sound_name}' at source {sound_time_abs}s "
+                        f"(clip time {sound_time:.1f}s outside 0–{clip.duration:.1f}s)"
+                    )
+                    continue
                 sound_volume = sound_config.get("volume", self.default_volume)
                 sound_fadeout = sound_config.get("fadeout", self.fadeout)
                 
