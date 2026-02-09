@@ -39,6 +39,7 @@ DEFAULT_SUBTITLE_SETTINGS = {
     "margin_bottom": 50,
     "bg_color": None,
     "bg_opacity": 0.6,
+    "line_spacing": 8,
 }
 
 # Default neon effect settings
@@ -58,6 +59,9 @@ DEFAULT_TRANSITION_SETTINGS = {
     "easing": "ease_in_out",
 }
 
+# Default spoken-word highlight settings (empty = disabled)
+DEFAULT_SPOKEN_WORD_HIGHLIGHT: dict[str, Any] = {}
+
 
 @dataclass
 class PipelineConfig:
@@ -70,6 +74,7 @@ class PipelineConfig:
         export_settings: Settings for video export (codec, quality, etc.)
         subtitle_settings: Default styling for subtitles
         neon_settings: Settings for neon text effects
+        spoken_word_highlight: Settings for spoken-word highlighting
         transition_settings: Default transition settings
         special_words: Words to highlight with special effects
         pipeline_stages: List of pipeline stages to execute
@@ -88,6 +93,9 @@ class PipelineConfig:
     )
     neon_settings: dict[str, Any] = field(
         default_factory=lambda: DEFAULT_NEON_SETTINGS.copy()
+    )
+    spoken_word_highlight: dict[str, Any] = field(
+        default_factory=lambda: DEFAULT_SPOKEN_WORD_HIGHLIGHT.copy()
     )
     transition_settings: dict[str, Any] = field(
         default_factory=lambda: DEFAULT_TRANSITION_SETTINGS.copy()
@@ -147,6 +155,9 @@ class PipelineConfig:
         if "neon_settings" in data:
             config.neon_settings.update(data["neon_settings"])
         
+        if "spoken_word_highlight" in data and isinstance(data["spoken_word_highlight"], dict):
+            config.spoken_word_highlight.update(data["spoken_word_highlight"])
+        
         if "transition_settings" in data:
             config.transition_settings.update(data["transition_settings"])
         
@@ -175,6 +186,7 @@ class PipelineConfig:
             "export_settings": self.export_settings,
             "subtitle_settings": self.subtitle_settings,
             "neon_settings": self.neon_settings,
+            "spoken_word_highlight": self.spoken_word_highlight,
             "transition_settings": self.transition_settings,
             "special_words": self.special_words,
             "pipeline_stages": self.pipeline_stages,

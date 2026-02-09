@@ -8,6 +8,7 @@ A configurable, AI-powered video editing pipeline designed for continuous develo
 
 - **Auto Subtitles**: Generate subtitles using OpenAI Whisper with word-level timing
 - **Text Animation Effects**: Kinetic typography with word-by-word reveal
+- **Spoken Word Highlighting**: Soft pill background follows the current word
 - **Neon Effects**: Futuristic neon green glow effects for special words
 - **Professional Transitions**: Quick slide transitions with motion blur
 - **ProRes 422 HQ Export**: 10-bit professional quality output
@@ -101,6 +102,18 @@ subtitle_settings:
   color: white
   stroke_width: 2
 
+# Spoken-word highlight (karaoke-style)
+spoken_word_highlight:
+  enabled: true
+  effect: soft_pill
+  bg_color: "#FDE68A"
+  bg_opacity: 0.85
+  text_color: "#111827"
+  padding_x: 12
+  padding_y: 4
+  corner_radius: 8
+  reveal_mode: full
+
 # Special words get neon effects
 special_words:
   amazing:
@@ -133,6 +146,7 @@ from videopipe.nodes import (
     LoadVideosNode,
     GenerateSubtitlesNode,
     RenderSubtitlesNode,
+    ApplySpokenWordHighlightNode,
     ApplyTransitionNode,
     ExportNode,
 )
@@ -150,6 +164,10 @@ context.add_special_word("amazing", {"type": "neon", "color": "#39FF14"})
 pipeline = Pipeline()
 pipeline.add_node(LoadVideosNode())
 pipeline.add_node(GenerateSubtitlesNode(whisper_model="medium"))
+pipeline.add_node(ApplySpokenWordHighlightNode(
+    effect="soft_pill",
+    highlight_config={"reveal_mode": "full"},
+))
 pipeline.add_node(RenderSubtitlesNode(animated=True))
 pipeline.add_node(ApplyTransitionNode(
     transition_type="slide",

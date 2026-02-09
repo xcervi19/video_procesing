@@ -113,6 +113,7 @@ class RenderSubtitlesNode(Node):
     - Basic subtitle rendering
     - Word-by-word animation
     - Special effects for marked words (e.g., neon glow)
+    - Spoken-word highlight effects (background emphasis)
     """
     
     def __init__(
@@ -145,15 +146,24 @@ class RenderSubtitlesNode(Node):
                 **self.style_config,
             }
             style = SubtitleStyle.from_dict(style_dict)
+            word_highlight = context.config.get("spoken_word_highlight") or None
+            if not isinstance(word_highlight, dict):
+                word_highlight = None
+            highlight_enabled = bool(word_highlight) and word_highlight.get("enabled", True)
+            use_animated = self.animated or highlight_enabled
             
             logger.info(f"Rendering {len(context.subtitles)} subtitle segments")
-            logger.info(f"Animation: {'enabled' if self.animated else 'disabled'}")
+            logger.info(f"Animation: {'enabled' if use_animated else 'disabled'}")
+            if highlight_enabled:
+                effect_name = word_highlight.get("effect", "soft_pill") if word_highlight else "soft_pill"
+                logger.info(f"Spoken-word highlight: {effect_name}")
             
             # Create renderer
-            if self.animated:
+            if use_animated:
                 renderer = AnimatedSubtitleRenderer(
                     style=style,
                     special_words=context.special_words,
+                    word_highlight=word_highlight,
                 )
             else:
                 renderer = SubtitleRenderer(style=style)
@@ -186,7 +196,7 @@ class RenderSubtitlesNode(Node):
                 clip,
                 segments,
                 style=style,
-                animate=self.animated if hasattr(renderer, 'render_subtitles') else False,
+                animate=use_animated if hasattr(renderer, 'render_subtitles') else False,
             )
             
             context.set_main_clip(result_clip)

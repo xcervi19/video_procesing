@@ -149,6 +149,61 @@ class ApplyNeonEffectNode(Node):
             return NodeResult.failure_result(e)
 
 
+class ApplySpokenWordHighlightNode(Node):
+    """
+    Enable spoken-word highlighting for subtitles.
+    
+    This configures the subtitle renderer to emphasize the
+    currently spoken word with a background highlight effect.
+    """
+    
+    def __init__(
+        self,
+        config: Optional[dict[str, Any]] = None,
+        effect: str = "soft_pill",
+        highlight_config: Optional[dict[str, Any]] = None,
+    ):
+        super().__init__(
+            name="apply_spoken_word_highlight",
+            config=config,
+            dependencies=["generate_subtitles"],
+        )
+        self.effect = effect
+        self.highlight_config = highlight_config or {}
+    
+    def process(self, context: PipelineContext) -> NodeResult:
+        try:
+            if not context.subtitles:
+                logger.warning("No subtitles found; spoken-word highlight will be idle")
+            
+            existing = context.config.get("spoken_word_highlight", {})
+            if existing is None:
+                existing = {}
+            
+            highlight_settings = {
+                **existing,
+                **self.highlight_config,
+            }
+            if self.effect:
+                highlight_settings["effect"] = self.effect
+            highlight_settings["enabled"] = True
+            
+            context.config["spoken_word_highlight"] = highlight_settings
+            
+            logger.info(
+                "Configured spoken-word highlight effect: %s",
+                highlight_settings.get("effect", "soft_pill"),
+            )
+            
+            return NodeResult.success_result(
+                output=context.get_main_clip(),
+                highlight_effect=highlight_settings,
+            )
+        
+        except Exception as e:
+            return NodeResult.failure_result(e)
+
+
 # #region agent log
 import json as _json_debug
 import time as _time_debug
