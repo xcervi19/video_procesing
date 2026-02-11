@@ -39,6 +39,7 @@ DEFAULT_SUBTITLE_SETTINGS = {
     "position": ("center", "bottom"),
     "margin_bottom": 50,
     "position_y_percent": None,  # e.g. 0.92 = 8% from bottom; None = use margin_bottom
+    "max_words_per_subtitle": None,  # e.g. 4 = show 2–5 words at a time; None = full segment
     "bg_color": None,
     "bg_opacity": 0.6,
     "line_spacing": 8,

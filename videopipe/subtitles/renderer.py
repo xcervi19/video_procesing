@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from videopipe.core.context import PipelineContext, SubtitleEntry
     from videopipe.subtitles.whisper_stt import TranscriptionResult, TranscriptionSegment
 
+from videopipe.subtitles.whisper_stt import TranscriptionSegment, WordTiming
+
 logger = logging.getLogger(__name__)
 
 # Fallback font path so we never pass a callable to TextClip (avoids 'function' object has no attribute 'copy')
@@ -56,6 +58,31 @@ def _subtitle_top_y(style: "SubtitleStyle", frame_height: int, clip_height: int)
     return frame_height - style.margin_bottom - clip_height
 
 
+def _split_segments_by_word_count(
+    segments: list[TranscriptionSegment], max_words: int
+) -> list[TranscriptionSegment]:
+    """Split segments so each on-screen subtitle has at most max_words."""
+    if max_words < 1:
+        return segments
+    result: list[TranscriptionSegment] = []
+    for seg in segments:
+        if not seg.words or len(seg.words) <= max_words:
+            result.append(seg)
+            continue
+        for i in range(0, len(seg.words), max_words):
+            chunk = seg.words[i : i + max_words]
+            text = " ".join(w.word for w in chunk)
+            result.append(
+                TranscriptionSegment(
+                    text=text,
+                    start=chunk[0].start,
+                    end=chunk[-1].end,
+                    words=chunk,
+                )
+            )
+    return result
+
+
 @dataclass
 class SubtitleStyle:
     """Styling options for subtitles."""
@@ -74,6 +101,8 @@ class SubtitleStyle:
     # the *bottom* edge of the subtitle. If set, overrides margin_bottom.
     # E.g. 0.92 = 8% from bottom, 1.0 = flush to bottom.
     position_y_percent: Optional[float] = None
+    # Max words per on-screen subtitle (e.g. 3–5). None = show full segment text.
+    max_words_per_subtitle: Optional[int] = None
 
     # Animation settings
     fade_in: float = 0.1
@@ -97,6 +126,8 @@ class SubtitleStyle:
         }
         if self.position_y_percent is not None:
             out["position_y_percent"] = self.position_y_percent
+        if self.max_words_per_subtitle is not None:
+            out["max_words_per_subtitle"] = self.max_words_per_subtitle
         return out
     
     @classmethod
@@ -219,8 +250,10 @@ class SubtitleRenderer:
             Video clip with subtitles overlaid
         """
         style = style or self.style
+        if style.max_words_per_subtitle is not None and style.max_words_per_subtitle >= 1:
+            segments = _split_segments_by_word_count(segments, style.max_words_per_subtitle)
         subtitle_clips = []
-        
+
         for segment in segments:
             txt_clip = self.create_subtitle_clip(
                 text=segment.text,

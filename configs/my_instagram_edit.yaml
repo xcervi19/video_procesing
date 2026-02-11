@@ -68,6 +68,7 @@ subtitle_settings:
   font: "Bebas Neue"
   font_size: 48
   position_y_percent: 0.5
+  max_words_per_subtitle: 4   # show 2–5 words on screen at a time
 # ============================================================
 # TEXT ANIMATION SETTINGS
 # ============================================================
