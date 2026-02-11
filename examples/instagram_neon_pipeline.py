@@ -23,6 +23,30 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+
+class _Tee:
+    """Write to both an original stream and a log file (for .cursor/output.log)."""
+    def __init__(self, stream, log_file):
+        self._stream = stream
+        self._log = log_file
+    def write(self, data):
+        self._stream.write(data)
+        if self._log and not self._log.closed:
+            try:
+                self._log.write(data)
+                self._log.flush()
+            except OSError:
+                pass
+    def flush(self):
+        self._stream.flush()
+        if self._log and not self._log.closed:
+            try:
+                self._log.flush()
+            except OSError:
+                pass
+    def isatty(self):
+        return self._stream.isatty()
+
 from videopipe.core.pipeline import Pipeline
 from videopipe.core.context import PipelineContext
 from videopipe.nodes import (
@@ -33,6 +57,8 @@ from videopipe.nodes import (
     CreateNeonTextOverlay,
     AddSoundEffectNode,
     ExportNode,
+    GenerateSubtitlesNode,
+    RenderSubtitlesNode,
 )
 from videopipe.utils.fonts import get_font_path_for_config
 
@@ -143,7 +169,15 @@ def create_pipeline_from_config(config_path: Path):
         output_path=Path(config["output_path"]) if config.get("output_path") else None,
     )
     context.config = config
-    
+    # Populate special_words from config (subtitles section or top-level)
+    subs = config.get("subtitles") or {}
+    if isinstance(subs, dict) and "special_words" in subs:
+        for word, effect_config in subs["special_words"].items():
+            context.add_special_word(word, effect_config)
+    if "special_words" in config:
+        for word, effect_config in config["special_words"].items():
+            context.add_special_word(word, effect_config)
+
     # Build pipeline with proper dependency chain
     # Order: load_videos -> crop -> text_overlays -> sound_effects -> export
     pipeline = Pipeline(name="ConfiguredInstagramPipeline")
@@ -210,6 +244,24 @@ def create_pipeline_from_config(config_path: Path):
         pipeline.add_node(transition_node)
         last_node = "in_video_transition"
     
+    # 4b. Subtitles when spoken_word_highlight or text_overlays sync_to_titles
+    need_subtitles = bool(config.get("spoken_word_highlight"))
+    if not need_subtitles:
+        for ov in config.get("text_overlays", []):
+            if ov.get("sync_to_titles"):
+                need_subtitles = True
+                break
+    if need_subtitles:
+        gen_subs = GenerateSubtitlesNode(
+            whisper_model=config.get("whisper_model", "medium"),
+        )
+        gen_subs._dependencies = [last_node]
+        pipeline.add_node(gen_subs)
+        render_subs = RenderSubtitlesNode(animated=True)
+        render_subs._dependencies = ["generate_subtitles"]
+        pipeline.add_node(render_subs)
+        last_node = "render_subtitles"
+    
     # 5. Resolve global font (auto-download if needed)
     global_neon_settings = config.get("neon_settings", {})
     global_font = global_neon_settings.get("font", "Bebas Neue")
@@ -249,8 +301,17 @@ def create_pipeline_from_config(config_path: Path):
                 break
     
     # 6. Text overlays - each depends on the previous (chain them)
+    # When subtitles are used, only sync_to_titles overlays are allowed (no manual start_time/duration).
     text_overlays = config.get("text_overlays", [])
     for i, overlay in enumerate(text_overlays):
+        sync_to_titles = overlay.get("sync_to_titles", False)
+        if need_subtitles and not sync_to_titles:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Skipping text overlay '%s': when using subtitles, overlays must have sync_to_titles: true (no manual start_time/duration).",
+                overlay.get("name", f"text_{i}"),
+            )
+            continue
         node_name = overlay.get("name", f"text_{i}")
         
         # #region agent log
@@ -273,10 +334,13 @@ def create_pipeline_from_config(config_path: Path):
         # Get animation settings (can be per-overlay or global)
         animation_type = overlay.get("animation") or config.get("default_animation")
         animation_config = overlay.get("animation_config") or config.get("animation_config", {})
-        
+        sync_to_titles = overlay.get("sync_to_titles", False)
+        use_subtitle_word = overlay.get("use_subtitle_word", False)
+        segment_index = overlay.get("segment_index")
+        # When sync_to_titles, timing comes from titles; start_time/duration are optional/ignored
         text_node = CreateNeonTextOverlay(
             name=node_name,
-            text=overlay["text"],
+            text=overlay.get("text", ""),
             start_time=overlay.get("start_time", 0),
             duration=overlay.get("duration", 2.0),
             position=tuple(overlay.get("position", ["center", "center"])),
@@ -285,10 +349,13 @@ def create_pipeline_from_config(config_path: Path):
             width_percent=width_percent_value,
             animation=animation_type,
             animation_config=animation_config,
+            sync_to_titles=sync_to_titles,
+            use_subtitle_word=use_subtitle_word,
+            segment_index=segment_index,
         )
         text_node._dependencies = [last_node]  # Chain to previous
         pipeline.add_node(text_node)
-        last_node = node_name
+        last_node = text_node.name  # Use actual node name for dependency chain
     
     # 7. Sound effects (depends on last text overlay or previous)
     sounds_config = config.get("sound_effects", {})
@@ -315,95 +382,114 @@ def create_pipeline_from_config(config_path: Path):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Instagram Neon Pipeline - Process video with neon effects"
-    )
-    parser.add_argument(
-        "-i", "--input",
-        help="Input video file",
-    )
-    parser.add_argument(
-        "-o", "--output",
-        help="Output video file",
-    )
-    parser.add_argument(
-        "-c", "--config",
-        help="YAML configuration file",
-    )
-    parser.add_argument(
-        "--crop-bottom",
-        type=float,
-        default=0,
-        help="Percentage to crop from bottom (0-50)",
-    )
-    parser.add_argument(
-        "--transition-time",
-        type=float,
-        help="Time for in-video transition (seconds)",
-    )
-    parser.add_argument(
-        "--effects-folder",
-        default="effects_sound",
-        help="Folder containing sound effects",
-    )
-    parser.add_argument(
-        "--preset",
-        default="prores_422_hq",
-        help="Export preset (default: prores_422_hq)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show pipeline without running",
-    )
-    
-    args = parser.parse_args()
-    
-    # Use config file if provided
-    if args.config:
-        config_path = Path(args.config)
-        if not config_path.exists():
-            print(f"Error: Config file not found: {config_path}")
-            sys.exit(1)
-        pipeline, context = create_pipeline_from_config(config_path)
-    else:
-        # Require input/output for non-config mode
-        if not args.input or not args.output:
-            parser.print_help()
-            print("\nError: --input and --output required (or use --config)")
-            sys.exit(1)
+    # Tee stdout/stderr to .cursor/output.log so Cursor can read last run output
+    project_root = Path(__file__).resolve().parent.parent
+    log_path = project_root / ".cursor" / "output.log"
+    log_file = None
+    orig_stdout, orig_stderr = sys.stdout, sys.stderr
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(log_path, "w", encoding="utf-8")
+        sys.stdout = _Tee(orig_stdout, log_file)
+        sys.stderr = _Tee(orig_stderr, log_file)
+    except OSError:
+        pass
+
+    try:
+        parser = argparse.ArgumentParser(
+            description="Instagram Neon Pipeline - Process video with neon effects"
+        )
+        parser.add_argument(
+            "-i", "--input",
+            help="Input video file",
+        )
+        parser.add_argument(
+            "-o", "--output",
+            help="Output video file",
+        )
+        parser.add_argument(
+            "-c", "--config",
+            help="YAML configuration file",
+        )
+        parser.add_argument(
+            "--crop-bottom",
+            type=float,
+            default=0,
+            help="Percentage to crop from bottom (0-50)",
+        )
+        parser.add_argument(
+            "--transition-time",
+            type=float,
+            help="Time for in-video transition (seconds)",
+        )
+        parser.add_argument(
+            "--effects-folder",
+            default="effects_sound",
+            help="Folder containing sound effects",
+        )
+        parser.add_argument(
+            "--preset",
+            default="prores_422_hq",
+            help="Export preset (default: prores_422_hq)",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Show pipeline without running",
+        )
         
-        if not Path(args.input).exists():
-            print(f"Error: Input file not found: {args.input}")
-            sys.exit(1)
+        args = parser.parse_args()
         
-        pipeline, context = create_pipeline_from_args(args)
-    
-    # Dry run
-    if args.dry_run:
-        pipeline.dry_run(context)
-        return
-    
-    # Run pipeline
-    print("\n" + "=" * 60)
-    print("Instagram Neon Pipeline")
-    print("=" * 60)
-    
-    results = pipeline.run(context)
-    
-    # Report
-    failed = [name for name, result in results.items() if not result.success]
-    
-    if failed:
-        print(f"\nPipeline FAILED at: {', '.join(failed)}")
-        for name in failed:
-            if results[name].error:
-                print(f"  {name}: {results[name].error}")
-        sys.exit(1)
-    else:
-        print(f"\nSuccess! Output: {context.output_path}")
-    
-    context.cleanup()
+        # Use config file if provided
+        if args.config:
+            config_path = Path(args.config)
+            if not config_path.exists():
+                print(f"Error: Config file not found: {config_path}")
+                sys.exit(1)
+            pipeline, context = create_pipeline_from_config(config_path)
+        else:
+            # Require input/output for non-config mode
+            if not args.input or not args.output:
+                parser.print_help()
+                print("\nError: --input and --output required (or use --config)")
+                sys.exit(1)
+            
+            if not Path(args.input).exists():
+                print(f"Error: Input file not found: {args.input}")
+                sys.exit(1)
+            
+            pipeline, context = create_pipeline_from_args(args)
+        
+        # Dry run
+        if args.dry_run:
+            pipeline.dry_run(context)
+            return
+        
+        # Run pipeline
+        print("\n" + "=" * 60)
+        print("Instagram Neon Pipeline")
+        print("=" * 60)
+        
+        results = pipeline.run(context)
+        
+        # Report
+        failed = [name for name, result in results.items() if not result.success]
+        
+        if failed:
+            print(f"\nPipeline FAILED at: {', '.join(failed)}")
+            for name in failed:
+                if results[name].error:
+                    print(f"  {name}: {results[name].error}")
+            sys.exit(1)
+        else:
+            print(f"\nSuccess! Output: {context.output_path}")
+        
+        context.cleanup()
+    finally:
+        sys.stdout = orig_stdout
+        sys.stderr = orig_stderr
+        if log_file and not log_file.closed:
+            log_file.close()
 
 
 if __name__ == "__main__":

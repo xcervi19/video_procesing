@@ -21,7 +21,7 @@ output_path: /Users/karel.cervicek/Documents/media/marketing/prispevek7/en/outpu
 preview_mode: true  # Change to true for quick previews
 
 preview:
-  start_time: 8     # Start from this time (seconds)
+  start_time: 0.0     # Start from this time (seconds)
   end_time: 16.0       # End at this time (seconds)
   scale: null         # Optional: 0.5 for half resolution (faster)
 # ============================================================
@@ -43,6 +43,32 @@ transition_type: slide
 transition_duration: 0.3
 
 # ============================================================
+# SUBTITLES
+# ============================================================
+subtitles:
+  # Words that get special treatment: in subtitle line and/or in text_overlays
+  special_words:
+    "378": {}
+    "five": {}
+    "24 months": {}
+  # true = hide normal subtitle line, show only special words (one at a time)
+  # false = show full subtitle line as usual
+  show_only_special_words: false
+  # true = text_overlays with use_subtitle_word show only special words
+  # false = overlay shows every spoken word
+  use_overlay_for_special_words: true
+
+# Spoken-word highlight (current word in subtitle line)
+spoken_word_highlight:
+  enabled: true
+  effect: soft_pill   # Highlight style for current word (e.g. soft_pill)
+
+# Subtitle line font (same as neon for consistent look)
+subtitle_settings:
+  font: "Bebas Neue"
+  font_size: 48
+  position_y_percent: 0.5
+# ============================================================
 # TEXT ANIMATION SETTINGS
 # ============================================================
 # Available animations: typewriter, pop_in, fade, none
@@ -58,36 +84,18 @@ animation_config:
   entrance_easing: ease_out_expo    # Smooth professional easing
   exit_easing: ease_in_out_quad     # Smooth exit
 
-# Neon text overlays - multiple texts at specific times
-# width_percent: Text width as % of video width (e.g., 50 = text is 50% of video width)
-# animation: Override default animation (typewriter, pop_in, fade, none)
+# Text overlays: subtitle-driven only (no start_time/duration).
+# When subtitles.use_overlay_for_special_words is true, overlay shows only words in subtitles.special_words.
+# - use_subtitle_word: true = show (filtered) spoken word with this effect (e.g. center overlay).
+# - segment_index: show a specific segment's text at that segment's time.
 text_overlays:
-  - name: text_378
-    text: "378"
-    start_time: 1.0
-    duration: 1.5
+  - name: word_highlight
+    sync_to_titles: true
+    use_subtitle_word: true
     position: ["center", "center"]
-    futuristic: false       # Use animated text instead of neon glow
-    width_percent: 40
-    animation: typewriter   # Smooth typewriter effect
-    
-  - name: text_five
-    text: "five !"
-    start_time: 3.0
-    duration: 2.0
-    position: ["center", "center"]
-    futuristic: false
     width_percent: 50
-    animation: pop_in       # Pop-in with scale effect
-    
-  - name: text_24months
-    text: "24 months"
-    start_time: 8.0
-    duration: 2.5
-    position: ["center", "center"]
+    animation: pop_in
     futuristic: false
-    width_percent: 70
-    animation: typewriter
 
 # Sound effects configuration
 sound_effects:

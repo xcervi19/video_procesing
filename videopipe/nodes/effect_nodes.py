@@ -370,6 +370,11 @@ class CreateNeonTextOverlay(Node):
     """
     Create standalone neon text overlays at specific times.
     
+    When sync_to_titles is True, timing (and optionally text) comes from
+    subtitles/titles; start_time and duration are ignored.
+    - use_subtitle_word: True = show only the current spoken word (one overlay per word).
+    - segment_index: When sync_to_titles and not use_subtitle_word, use this segment's timing.
+    
     Supports professional animations including:
     - typewriter: Characters appear one by one with smooth fade
     - pop_in: Text scales up with bounce effect
@@ -386,6 +391,14 @@ class CreateNeonTextOverlay(Node):
             width_percent=50,
             animation="typewriter",
         )
+        # Synced to titles: show current word from subtitles with overlay effect
+        CreateNeonTextOverlay(
+            name="word_highlight",
+            text="",
+            sync_to_titles=True,
+            use_subtitle_word=True,
+            animation="pop_in",
+        )
     """
     
     def __init__(
@@ -401,6 +414,9 @@ class CreateNeonTextOverlay(Node):
         width_percent: Optional[float] = None,
         animation: Optional[str] = None,
         animation_config: Optional[dict[str, Any]] = None,
+        sync_to_titles: bool = False,
+        use_subtitle_word: bool = False,
+        segment_index: Optional[int] = None,
     ):
         """
         Initialize neon text overlay node.
@@ -408,9 +424,9 @@ class CreateNeonTextOverlay(Node):
         Args:
             config: Node configuration
             name: Unique node name (required if using multiple overlays)
-            text: Text to display
-            start_time: When the text should appear (seconds)
-            duration: How long the text should be visible (seconds)
+            text: Text to display (ignored when use_subtitle_word=True)
+            start_time: When the text should appear (seconds); ignored when sync_to_titles=True
+            duration: How long the text should be visible (seconds); ignored when sync_to_titles=True
             position: Position tuple (x, y) - can be "center", pixel values, etc.
             neon_config: Neon effect configuration
             futuristic: Use futuristic effect (True) or basic neon (False)
@@ -422,12 +438,18 @@ class CreateNeonTextOverlay(Node):
                 - entrance_duration: Animation entrance time (default: 0.4)
                 - exit_duration: Fade out time (default: 0.3)
                 - fade_out: Whether to fade out (default: True)
+            sync_to_titles: If True, timing (and text when use_subtitle_word) comes from subtitles.
+            use_subtitle_word: If True (and sync_to_titles), show only the current word from subtitles per word timing.
+            segment_index: When sync_to_titles and not use_subtitle_word, use this subtitle segment index (default 0).
         """
         node_name = name or f"neon_overlay_{text[:10]}" if text else "create_neon_overlay"
+        deps = ["load_videos"]
+        if sync_to_titles:
+            deps = ["generate_subtitles"]
         super().__init__(
             name=node_name,
             config=config,
-            dependencies=["load_videos"],
+            dependencies=deps,
         )
         self.text = text
         self.start_time = start_time
@@ -438,6 +460,9 @@ class CreateNeonTextOverlay(Node):
         self.width_percent = width_percent
         self.animation = animation
         self.animation_config = animation_config or {}
+        self.sync_to_titles = sync_to_titles
+        self.use_subtitle_word = use_subtitle_word
+        self.segment_index = segment_index
     
     def process(self, context: PipelineContext) -> NodeResult:
         # #region agent log
@@ -448,35 +473,83 @@ class CreateNeonTextOverlay(Node):
             if clip is None:
                 return NodeResult.failure_result(ValueError("No main clip"))
             
-            if not self.text:
-                logger.info("No text specified for neon overlay")
-                return NodeResult.success_result(output=clip)
-            
-            # All config times are absolute (source video). In preview mode convert to clip time.
+            # Resolve timing and text from subtitles when sync_to_titles is set
+            segments_to_render: list[tuple[float, float, str]] = []  # (start_in_clip, duration, text)
             preview_start = (
                 context.metadata.get("preview_start", 0)
                 if context.metadata.get("preview_mode") else 0
             )
-            start_in_clip = self.start_time - preview_start if preview_start else self.start_time
-            # Skip overlay if entirely outside the trimmed clip
-            if start_in_clip >= clip.duration:
-                logger.debug(
-                    f"Skipping overlay '{self.text}' at source {self.start_time}s "
-                    f"(starts at clip {start_in_clip:.1f}s, clip duration {clip.duration:.1f}s)"
+            preview_start = float(preview_start) if preview_start else 0.0
+
+            if self.sync_to_titles and context.subtitles:
+                use_overlay_for_special = (
+                    (context.config.get("subtitles") or {}).get("use_overlay_for_special_words", False)
                 )
-                return NodeResult.success_result(output=clip)
-            if start_in_clip + self.duration <= 0:
-                logger.debug(
-                    f"Skipping overlay '{self.text}' at source {self.start_time}s "
-                    f"(entirely before clip start)"
-                )
-                return NodeResult.success_result(output=clip)
-            # Clamp start to clip and trim duration so we don't exceed clip end
-            start_in_clip = max(0.0, start_in_clip)
-            actual_duration = min(self.duration, clip.duration - start_in_clip)
-            
-            # Validate
-            if actual_duration <= 0:
+                only_special = use_overlay_for_special and bool(context.special_words)
+                if self.use_subtitle_word:
+                    # One (start, duration, text) per word across all segments
+                    for entry in context.subtitles:
+                        for w in entry.word_timings:
+                            start_src = w.get("start", entry.start_time)
+                            end_src = w.get("end", start_src + 0.3)
+                            word_text = (w.get("word") or "").strip()
+                            if not word_text:
+                                continue
+                            if only_special:
+                                clean = word_text.lower().strip(".,!?;:'\"")
+                                if clean not in context.special_words:
+                                    continue
+                            start_in_clip = start_src - preview_start
+                            duration = max(0.05, end_src - start_src)
+                            if start_in_clip + duration <= 0 or start_in_clip >= clip.duration:
+                                continue
+                            start_in_clip = max(0.0, start_in_clip)
+                            duration = min(duration, clip.duration - start_in_clip)
+                            if duration > 0:
+                                segments_to_render.append((start_in_clip, duration, word_text))
+                else:
+                    # One segment: use segment_index (default 0)
+                    idx = self.segment_index if self.segment_index is not None else 0
+                    if 0 <= idx < len(context.subtitles):
+                        entry = context.subtitles[idx]
+                        start_src = entry.start_time
+                        end_src = entry.end_time
+                        start_in_clip = start_src - preview_start
+                        actual_duration = max(0.05, end_src - start_src)
+                        if start_in_clip + actual_duration <= 0 or start_in_clip >= clip.duration:
+                            pass  # skip
+                        else:
+                            start_in_clip = max(0.0, start_in_clip)
+                            actual_duration = min(actual_duration, clip.duration - start_in_clip)
+                            if actual_duration > 0:
+                                text = self.text or entry.text
+                                segments_to_render.append((start_in_clip, actual_duration, text))
+            else:
+                # Original behaviour: use start_time and duration from config
+                if not self.text and not segments_to_render:
+                    logger.info("No text specified for neon overlay")
+                    return NodeResult.success_result(output=clip)
+                start_in_clip = self.start_time - preview_start if preview_start else self.start_time
+                if start_in_clip >= clip.duration:
+                    logger.debug(
+                        f"Skipping overlay '{self.text}' at source {self.start_time}s "
+                        f"(starts at clip {start_in_clip:.1f}s, clip duration {clip.duration:.1f}s)"
+                    )
+                    return NodeResult.success_result(output=clip)
+                if start_in_clip + self.duration <= 0:
+                    logger.debug(
+                        f"Skipping overlay '{self.text}' at source {self.start_time}s "
+                        f"(entirely before clip start)"
+                    )
+                    return NodeResult.success_result(output=clip)
+                start_in_clip = max(0.0, start_in_clip)
+                actual_duration = min(self.duration, clip.duration - start_in_clip)
+                if actual_duration <= 0:
+                    return NodeResult.success_result(output=clip)
+                segments_to_render.append((start_in_clip, actual_duration, self.text))
+
+            if not segments_to_render:
+                logger.debug("No segments to render for neon overlay (sync_to_titles or empty)")
                 return NodeResult.success_result(output=clip)
             
             # Build neon config
@@ -484,49 +557,22 @@ class CreateNeonTextOverlay(Node):
                 **context.config.get("neon_settings", {}),
                 **self.neon_config,
             }
-            
-            # #region agent log
-            _dbg("G", "CreateNeonTextOverlay:process:neon_settings", "Neon settings built", {"neon_settings": str(neon_settings), "self_neon_config": str(self.neon_config)})
-            # #endregion
-            
-            # Calculate font size based on width_percent if specified
             font_name = neon_settings.get("font", "Arial-Bold")
-            
-            # #region agent log
-            _dbg("E", "CreateNeonTextOverlay:process:width_percent_check", "Checking width_percent", {"width_percent": self.width_percent, "is_none": self.width_percent is None, "clip_w": clip.w})
-            # #endregion
-            
+            # For font size: use first segment text when sync_to_titles (for width_percent)
+            sample_text = segments_to_render[0][2] if segments_to_render else self.text
+
             if self.width_percent is not None:
-                # Calculate target width in pixels
                 target_width = int(clip.w * (self.width_percent / 100))
-                
-                # Calculate font size to achieve this width
                 calculated_font_size = _calculate_font_size_for_width(
-                    text=self.text,
+                    text=sample_text,
                     target_width=target_width,
                     font=font_name,
                 )
-                
-                # #region agent log
-                _dbg("G", "CreateNeonTextOverlay:process:font_size_calculated", "Font size from width_percent", {"calculated_font_size": calculated_font_size, "target_width": target_width})
-                # #endregion
-                
-                logger.info(
-                    f"Text '{self.text}': width_percent={self.width_percent}% -> "
-                    f"target_width={target_width}px -> font_size={calculated_font_size}"
-                )
             else:
                 calculated_font_size = neon_settings.get("font_size", 64)
-                # #region agent log
-                _dbg("G", "CreateNeonTextOverlay:process:font_size_default", "Using default font size (width_percent is None)", {"calculated_font_size": calculated_font_size})
-                # #endregion
-            
-            # Scale glow_radius proportionally to font size for visible effect
-            # Use config value as base, but scale up for large fonts
+
             base_glow_radius = neon_settings.get("glow_radius", 15)
-            # For font sizes > 100, scale glow radius proportionally (about 8-10% of font size)
             scaled_glow_radius = max(base_glow_radius, int(calculated_font_size * 0.08))
-            
             neon_cfg = NeonConfig(
                 color=neon_settings.get("color", "#39FF14"),
                 glow_intensity=neon_settings.get("glow_intensity", 1.5),
@@ -536,30 +582,13 @@ class CreateNeonTextOverlay(Node):
                 font=font_name,
                 font_size=calculated_font_size,
             )
-            
-            # #region agent log
-            _dbg("GLOW", "CreateNeonTextOverlay:glow_scaling", "Glow radius scaled", {"base": base_glow_radius, "scaled": scaled_glow_radius, "font_size": calculated_font_size})
-            # #endregion
-            
-            # Check if animation is requested
             animation_type = self.animation or self.neon_config.get("animation")
-            
-            # #region agent log
-            _dbg("A", "CreateNeonTextOverlay:branch_check", "Checking animation vs neon branch", {"animation_type": animation_type, "futuristic": self.futuristic, "has_animation": bool(animation_type and animation_type != "none")})
-            # #endregion
-            
+            anim_settings = {
+                **self.animation_config,
+                **self.neon_config.get("animation_config", {}),
+            }
+            anim_config = None
             if animation_type and animation_type != "none":
-                # Use professional animation system
-                # #region agent log
-                _dbg("B", "CreateNeonTextOverlay:animation_branch", "TOOK ANIMATION BRANCH with neon_config", {"type": animation_type, "neon_cfg_color": neon_cfg.color, "neon_cfg_glow_intensity": neon_cfg.glow_intensity})
-                # #endregion
-                
-                # Build animation config
-                anim_settings = {
-                    **self.animation_config,
-                    **self.neon_config.get("animation_config", {}),
-                }
-                
                 anim_config = ProfessionalAnimationConfig(
                     animation_type=animation_type,
                     chars_per_second=anim_settings.get("chars_per_second", 15.0),
@@ -571,65 +600,51 @@ class CreateNeonTextOverlay(Node):
                     scale_start=anim_settings.get("scale_start", 0.8),
                     scale_end=anim_settings.get("scale_end", 1.0),
                 )
-                
-                # Create animated text WITH neon glow effect
-                animator = ProfessionalTextAnimation(anim_config)
-                text_clip = animator.create_animated_text(
-                    text=self.text,
-                    total_duration=actual_duration,
-                    font=font_name,
-                    font_size=calculated_font_size,
-                    color=neon_settings.get("color", "#39FF14"),
-                    stroke_color=neon_settings.get("stroke_color"),
-                    stroke_width=neon_settings.get("stroke_width", 0),
-                    neon_config=neon_cfg,  # Pass neon config for glow effect!
-                )
-                
-                logger.info(
-                    f"Created animated text: '{self.text}' with {animation_type} animation + neon glow"
-                )
-            else:
-                # Use original neon effect (no entrance/exit animation)
-                # #region agent log
-                _dbg("C", "CreateNeonTextOverlay:neon_branch", "TOOK NEON BRANCH - animation SKIPPED", {"futuristic": self.futuristic})
-                # #endregion
-                if self.futuristic:
-                    effect = FuturisticTextEffect(
-                        config=neon_cfg,
-                        secondary_color=neon_settings.get("secondary_color", "#00FFFF"),
-                    )
-                    text_clip = effect.create_futuristic_text(
-                        self.text,
-                        duration=actual_duration,
+
+            text_clips_list = []
+            for start_in_clip, actual_duration, text in segments_to_render:
+                if not text:
+                    continue
+                if anim_config:
+                    animator = ProfessionalTextAnimation(anim_config)
+                    seg_clip = animator.create_animated_text(
+                        text=text,
+                        total_duration=actual_duration,
+                        font=font_name,
+                        font_size=calculated_font_size,
+                        color=neon_settings.get("color", "#39FF14"),
+                        stroke_color=neon_settings.get("stroke_color"),
+                        stroke_width=neon_settings.get("stroke_width", 0),
+                        neon_config=neon_cfg,
                     )
                 else:
-                    effect = NeonGlowEffect(config=neon_cfg)
-                    text_clip = effect.create_neon_text(
-                        self.text,
-                        duration=actual_duration,
-                    )
-            
-            # Set start time (in clip time) and position
-            text_clip = text_clip.with_start(start_in_clip)
-            text_clip = text_clip.with_position(self.position)
-            
-            # Composite onto main clip
+                    if self.futuristic:
+                        effect = FuturisticTextEffect(
+                            config=neon_cfg,
+                            secondary_color=neon_settings.get("secondary_color", "#00FFFF"),
+                        )
+                        seg_clip = effect.create_futuristic_text(text, duration=actual_duration)
+                    else:
+                        effect = NeonGlowEffect(config=neon_cfg)
+                        seg_clip = effect.create_neon_text(text, duration=actual_duration)
+                seg_clip = seg_clip.with_start(start_in_clip).with_position(self.position)
+                text_clips_list.append(seg_clip)
+
             from moviepy import CompositeVideoClip
-            result = CompositeVideoClip([clip, text_clip], size=(clip.w, clip.h))
+            result = CompositeVideoClip([clip] + text_clips_list, size=(clip.w, clip.h))
             result = result.with_duration(clip.duration)
-            
             context.set_main_clip(result)
-            
+
+            first_start, first_duration, first_text = segments_to_render[0]
             logger.info(
-                f"Created neon overlay: '{self.text}' at clip {start_in_clip:.1f}s (source {self.start_time}s) for {actual_duration}s "
+                f"Created neon overlay: {len(segments_to_render)} segment(s), first '{first_text}' at {first_start:.1f}s for {first_duration}s "
                 f"(font_size={calculated_font_size}, animation={animation_type or 'none'})"
             )
-            
             return NodeResult.success_result(
                 output=result,
-                text=self.text,
-                start_time=start_in_clip,
-                duration=actual_duration,
+                text=first_text,
+                start_time=first_start,
+                duration=first_duration,
                 font_size=calculated_font_size,
                 animation=animation_type,
             )

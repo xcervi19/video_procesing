@@ -183,7 +183,11 @@ def create_context_from_config(config: dict[str, Any]) -> PipelineContext:
     if "output_path" in config:
         ctx.output_path = Path(config["output_path"])
     
-    # Set special words for effects
+    # Set special words for effects (from subtitles section or top-level)
+    subs = config.get("subtitles") or {}
+    if isinstance(subs, dict) and "special_words" in subs:
+        for word, effect_config in subs["special_words"].items():
+            ctx.add_special_word(word, effect_config)
     if "special_words" in config:
         for word, effect_config in config["special_words"].items():
             ctx.add_special_word(word, effect_config)

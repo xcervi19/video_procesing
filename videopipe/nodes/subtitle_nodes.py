@@ -16,8 +16,17 @@ from videopipe.subtitles.renderer import (
     AnimatedSubtitleRenderer,
     SubtitleStyle,
 )
+from videopipe.utils.fonts import get_font_path_for_config, find_font_file
 
 logger = logging.getLogger(__name__)
+
+# Fallback font paths when the configured font cannot be loaded (e.g. Arial-Bold on macOS)
+SUBTITLE_FONT_FALLBACKS = [
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/System/Library/Fonts/SFNSMono.ttf",
+]
 
 
 class GenerateSubtitlesNode(Node):
@@ -145,6 +154,31 @@ class RenderSubtitlesNode(Node):
                 **context.config.get("subtitle_settings", {}),
                 **self.style_config,
             }
+            # Resolve subtitle font to a path Pillow can open (avoid "cannot open resource")
+            font_name = style_dict.get("font", "Arial-Bold")
+            if callable(font_name):
+                font_name = "Arial-Bold"
+            resolved = get_font_path_for_config(font_name, auto_download=False)
+            if callable(resolved):
+                resolved = font_name
+            if resolved != font_name and Path(resolved).exists():
+                style_dict["font"] = str(resolved)
+            else:
+                found = find_font_file(font_name) or find_font_file("Arial") or find_font_file("Helvetica")
+                if found:
+                    style_dict["font"] = str(found)
+                else:
+                    for fallback in SUBTITLE_FONT_FALLBACKS:
+                        if Path(fallback).exists():
+                            style_dict["font"] = fallback
+                            logger.info(f"Subtitle font '{font_name}' not found, using fallback: {fallback}")
+                            break
+            # Ensure font is never a callable (would cause 'function' object has no attribute 'copy' in TextClip)
+            if callable(style_dict.get("font")):
+                style_dict["font"] = next(
+                    (f for f in SUBTITLE_FONT_FALLBACKS if Path(f).exists()),
+                    "/System/Library/Fonts/Helvetica.ttc",
+                )
             style = SubtitleStyle.from_dict(style_dict)
             word_highlight = context.config.get("spoken_word_highlight") or None
             if not isinstance(word_highlight, dict):
@@ -158,16 +192,21 @@ class RenderSubtitlesNode(Node):
                 effect_name = word_highlight.get("effect", "soft_pill") if word_highlight else "soft_pill"
                 logger.info(f"Spoken-word highlight: {effect_name}")
             
-            # Create renderer
-            if use_animated:
-                renderer = AnimatedSubtitleRenderer(
-                    style=style,
-                    special_words=context.special_words,
-                    word_highlight=word_highlight,
-                )
-            else:
-                renderer = SubtitleRenderer(style=style)
-            
+            show_only_special = (
+                (context.config.get("subtitles") or {}).get("show_only_special_words", False)
+            )
+            # Create renderer (animated branch commented – basic only until AnimatedSubtitleRenderer is restored)
+            # if use_animated:
+            #     renderer = AnimatedSubtitleRenderer(
+            #         style=style,
+            #         special_words=context.special_words,
+            #         word_highlight=word_highlight,
+            #         show_only_special_words=show_only_special,
+            #     )
+            # else:
+            #     renderer = SubtitleRenderer(style=style)
+            renderer = SubtitleRenderer(style=style)
+
             # Convert SubtitleEntry to TranscriptionSegment-like objects
             from videopipe.subtitles.whisper_stt import TranscriptionSegment, WordTiming
             
@@ -191,14 +230,15 @@ class RenderSubtitlesNode(Node):
                 )
                 segments.append(segment)
             
-            # Render subtitles
-            result_clip = renderer.render_subtitles(
-                clip,
-                segments,
-                style=style,
-                animate=use_animated if hasattr(renderer, 'render_subtitles') else False,
-            )
-            
+            # Render subtitles (animate=... commented – basic renderer has no animate kwarg)
+            result_clip = renderer.render_subtitles(clip, segments, style=style)
+            # result_clip = renderer.render_subtitles(
+            #     clip,
+            #     segments,
+            #     style=style,
+            #     animate=use_animated if hasattr(renderer, 'render_subtitles') else False,
+            # )
+
             context.set_main_clip(result_clip)
             
             return NodeResult.success_result(

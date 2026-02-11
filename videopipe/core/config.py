@@ -29,6 +29,7 @@ DEFAULT_EXPORT_SETTINGS = {
 }
 
 # Default subtitle settings
+# position_y_percent: 0=top, 1=bottom (subtitle bottom edge). If set, overrides margin_bottom.
 DEFAULT_SUBTITLE_SETTINGS = {
     "font": "Arial-Bold",
     "font_size": 48,
@@ -37,6 +38,7 @@ DEFAULT_SUBTITLE_SETTINGS = {
     "stroke_width": 2,
     "position": ("center", "bottom"),
     "margin_bottom": 50,
+    "position_y_percent": None,  # e.g. 0.92 = 8% from bottom; None = use margin_bottom
     "bg_color": None,
     "bg_opacity": 0.6,
     "line_spacing": 8,

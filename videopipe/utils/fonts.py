@@ -83,16 +83,19 @@ def find_font_file(font_name: str, search_dirs: Optional[list[Path]] = None) -> 
     
     # Normalize the font name for searching
     normalized = normalize_font_name(font_name)
+    base = normalized.replace(" ", "")
     search_patterns = [
         f"{font_name}*.ttf",
         f"{font_name}*.otf",
-        f"{normalized.replace(' ', '')}*.ttf",
-        f"{normalized.replace(' ', '')}*.otf",
+        f"{base}*.ttf",
+        f"{base}*.otf",
         f"{font_name.replace(' ', '-')}*.ttf",
         f"{font_name.replace(' ', '-')}*.otf",
+        f"{base}.ttf",  # exact lowercase filename (e.g. bebasneue.ttf)
+        f"{base}.otf",
     ]
     
-    # Build search directories
+    # Build search directories (project fonts first)
     dirs_to_search = [get_fonts_dir()]
     
     if search_dirs:

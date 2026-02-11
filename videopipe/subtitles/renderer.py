@@ -22,12 +22,38 @@ from moviepy import (
     concatenate_videoclips,
     ImageClip,
 )
+from moviepy.video.fx import FadeIn
 
 if TYPE_CHECKING:
     from videopipe.core.context import PipelineContext, SubtitleEntry
     from videopipe.subtitles.whisper_stt import TranscriptionResult, TranscriptionSegment
 
 logger = logging.getLogger(__name__)
+
+# Fallback font path so we never pass a callable to TextClip (avoids 'function' object has no attribute 'copy')
+_DEFAULT_FONT_FALLBACK = "/System/Library/Fonts/Helvetica.ttc"
+
+
+def _safe_font(font: Any) -> str:
+    """Return a string font path safe for TextClip; never return a callable."""
+    if callable(font):
+        return _DEFAULT_FONT_FALLBACK
+    if isinstance(font, str) and font.strip():
+        return font.strip()
+    return _DEFAULT_FONT_FALLBACK
+
+
+def _subtitle_top_y(style: "SubtitleStyle", frame_height: int, clip_height: int) -> int:
+    """
+    Vertical position (y) for the *top* of a subtitle clip.
+    In video coordinates, y=0 is the TOP of the frame; bottom is frame_height.
+    """
+    if style.position_y_percent is not None and 0 <= style.position_y_percent <= 1:
+        # position_y_percent: 0 = top, 1 = bottom (position of subtitle *bottom* edge)
+        # so top of clip = frame_height * position_y_percent - clip_height
+        return int(frame_height * style.position_y_percent - clip_height)
+    # Legacy: margin_bottom = pixels from frame bottom to subtitle bottom
+    return frame_height - style.margin_bottom - clip_height
 
 
 @dataclass
@@ -44,13 +70,17 @@ class SubtitleStyle:
     margin_bottom: int = 50
     margin_sides: int = 40
     line_spacing: int = 8
-    
+    # Vertical position as fraction of frame height (0=top, 1=bottom). Refers to
+    # the *bottom* edge of the subtitle. If set, overrides margin_bottom.
+    # E.g. 0.92 = 8% from bottom, 1.0 = flush to bottom.
+    position_y_percent: Optional[float] = None
+
     # Animation settings
     fade_in: float = 0.1
     fade_out: float = 0.1
-    
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "font": self.font,
             "font_size": self.font_size,
             "color": self.color,
@@ -65,44 +95,48 @@ class SubtitleStyle:
             "fade_in": self.fade_in,
             "fade_out": self.fade_out,
         }
+        if self.position_y_percent is not None:
+            out["position_y_percent"] = self.position_y_percent
+        return out
     
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SubtitleStyle:
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
-@dataclass
-class SpokenWordHighlightStyle:
-    """Styling options for spoken-word highlighting."""
-    bg_color: str = "#FDE68A"
-    bg_opacity: float = 0.85
-    text_color: str = "#111827"
-    stroke_color: Optional[str] = None
-    stroke_width: int = 0
-    padding_x: int = 12
-    padding_y: int = 4
-    corner_radius: int = 8
-    reveal_mode: str = "full"
-    
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> SpokenWordHighlightStyle:
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
-
-
-SPOKEN_WORD_HIGHLIGHT_PRESETS: dict[str, dict[str, Any]] = {
-    # Soft pill highlight: warm background, calm contrast, rounded edges.
-    "soft_pill": {
-        "bg_color": "#FDE68A",
-        "bg_opacity": 0.85,
-        "text_color": "#111827",
-        "stroke_color": None,
-        "stroke_width": 0,
-        "padding_x": 12,
-        "padding_y": 4,
-        "corner_radius": 8,
-        "reveal_mode": "full",
-    },
-}
+# ---------- Not used by basic renderer (commented out) ----------
+# @dataclass
+# class SpokenWordHighlightStyle:
+#     """Styling options for spoken-word highlighting."""
+#     bg_color: str = "#FDE68A"
+#     bg_opacity: float = 0.85
+#     text_color: str = "#111827"
+#     stroke_color: Optional[str] = None
+#     stroke_width: int = 0
+#     padding_x: int = 12
+#     padding_y: int = 4
+#     corner_radius: int = 8
+#     reveal_mode: str = "full"
+#
+#     @classmethod
+#     def from_dict(cls, data: dict[str, Any]) -> SpokenWordHighlightStyle:
+#         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+#
+#
+# SPOKEN_WORD_HIGHLIGHT_PRESETS: dict[str, dict[str, Any]] = {
+#     "soft_pill": {
+#         "bg_color": "#FDE68A",
+#         "bg_opacity": 0.85,
+#         "text_color": "#111827",
+#         "stroke_color": None,
+#         "stroke_width": 0,
+#         "padding_x": 12,
+#         "padding_y": 4,
+#         "corner_radius": 8,
+#         "reveal_mode": "full",
+#     },
+# }
+# ---------- End non-basic ----------
 
 
 class SubtitleRenderer:
@@ -141,10 +175,10 @@ class SubtitleRenderer:
         # Calculate max width for text wrapping
         max_width = width - (style.margin_sides * 2)
         
-        # Create text clip
+        # Create text clip (font must be string path, never callable)
         txt_clip = TextClip(
             text=text,
-            font=style.font,
+            font=_safe_font(style.font),
             font_size=style.font_size,
             color=style.color,
             stroke_color=style.stroke_color,
@@ -156,16 +190,13 @@ class SubtitleRenderer:
         
         txt_clip = txt_clip.with_duration(duration)
         
-        # Apply fade effects
+        # Apply fade effects (use Effect class so with_effects() can call .copy(); TextClip has no .crossfadein)
         if style.fade_in > 0:
-            txt_clip = txt_clip.with_effects([
-                lambda clip: clip.crossfadein(style.fade_in)
-            ])
+            txt_clip = txt_clip.with_effects([FadeIn(style.fade_in)])
         
-        # Position the subtitle
+        # Position the subtitle (y=0 is top of frame; bottom = height)
         x_pos = "center"
-        y_pos = height - style.margin_bottom - txt_clip.h
-        
+        y_pos = _subtitle_top_y(style, height, txt_clip.h)
         txt_clip = txt_clip.with_position((x_pos, y_pos))
         
         return txt_clip
@@ -204,25 +235,24 @@ class SubtitleRenderer:
         return CompositeVideoClip([video] + subtitle_clips)
 
 
+# ---------- Animated renderer commented out: use basic renderer only ----------
+AnimatedSubtitleRenderer = SubtitleRenderer  # alias so imports still work
+'''
 class AnimatedSubtitleRenderer(SubtitleRenderer):
     """
     Advanced subtitle renderer with word-by-word animations.
-    
-    Supports:
-    - Kinetic typography (word-by-word reveal)
-    - Special word highlighting
-    - Custom animation effects per word
     """
-    
     def __init__(
         self,
         style: Optional[SubtitleStyle] = None,
         special_words: Optional[dict[str, dict[str, Any]]] = None,
         word_highlight: Optional[dict[str, Any]] = None,
+        show_only_special_words: bool = False,
     ):
         super().__init__(style)
         self.special_words = special_words or {}
         self.word_highlight = word_highlight or {}
+        self.show_only_special_words = show_only_special_words
     
     def add_special_word(self, word: str, effect_config: dict[str, Any]):
         """Mark a word for special effect treatment."""
@@ -411,7 +441,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
         video_size: tuple[int, int],
         style: SubtitleStyle,
         highlight_config: dict[str, Any],
-    ) -> VideoClip:
+    ) -> Optional[VideoClip]:
         if not segment.words:
             return self.create_subtitle_clip(
                 segment.text, segment.duration, video_size, style
@@ -427,10 +457,11 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
             display_word = word_timing.word.strip()
             if not display_word:
                 continue
-            
+            if self.show_only_special_words and not self._is_special_word(display_word):
+                continue
             word_clip = TextClip(
                 text=display_word,
-                font=style.font,
+                font=_safe_font(style.font),
                 font_size=style.font_size,
                 color=style.color,
                 stroke_color=style.stroke_color,
@@ -443,6 +474,8 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
             })
         
         if not word_items:
+            if self.show_only_special_words:
+                return None
             return self.create_subtitle_clip(
                 segment.text, segment.duration, video_size, style
             )
@@ -460,7 +493,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
             )
         
         block_x = (video_size[0] - block_width) / 2
-        block_y = video_size[1] - style.margin_bottom - block_height
+        block_y = _subtitle_top_y(style, video_size[1], block_height)
         
         reveal_mode = (highlight_style.reveal_mode or "full").lower()
         highlight_text_color = highlight_style.text_color or style.color
@@ -512,7 +545,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
             
             highlight_clip = TextClip(
                 text=item["word"],
-                font=style.font,
+                font=_safe_font(style.font),
                 font_size=style.font_size,
                 color=highlight_text_color,
                 stroke_color=highlight_stroke_color,
@@ -530,9 +563,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
         ).with_duration(segment.duration)
         
         if style.fade_in > 0:
-            composite = composite.with_effects([
-                lambda clip: clip.crossfadein(style.fade_in)
-            ])
+            composite = composite.with_effects([FadeIn(style.fade_in)])
         
         return composite
     
@@ -574,7 +605,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
         
         txt_clip = TextClip(
             text=word,
-            font=style.font,
+            font=_safe_font(style.font),
             font_size=font_size,
             color=color,
             stroke_color=stroke_color,
@@ -590,7 +621,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
         segment: TranscriptionSegment,
         video_size: tuple[int, int],
         style: Optional[SubtitleStyle] = None,
-    ) -> VideoClip:
+    ) -> Optional[VideoClip]:
         """
         Render a segment with word-by-word animation.
         
@@ -602,9 +633,14 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
         
         highlight_config = self._resolve_spoken_word_highlight()
         if highlight_config:
-            return self._render_spoken_word_highlight_segment(
+            out = self._render_spoken_word_highlight_segment(
                 segment, video_size, style, highlight_config
             )
+            if out is not None:
+                return out
+            if self.show_only_special_words:
+                return None
+            # fallback when highlight returned None but we're not in show_only mode (shouldn't happen)
         
         if not segment.words:
             # Fall back to basic rendering if no word timings
@@ -616,9 +652,14 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
         current_text_parts = []
         
         for i, word_timing in enumerate(segment.words):
-            # Build up the text as words are spoken
-            current_text_parts.append(word_timing.word)
-            current_text = " ".join(current_text_parts)
+            if self.show_only_special_words and not self._is_special_word(word_timing.word):
+                continue
+            # Build up the text as words are spoken (or just this word when show_only_special_words)
+            if self.show_only_special_words:
+                current_text = word_timing.word
+            else:
+                current_text_parts.append(word_timing.word)
+                current_text = " ".join(current_text_parts)
             
             # Calculate duration until next word or end
             if i < len(segment.words) - 1:
@@ -646,14 +687,16 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
                 style=style,
             )
             
-            # Position
-            y_pos = height - style.margin_bottom - txt_clip.h
+            # Position (y=0 is top of frame)
+            y_pos = _subtitle_top_y(style, height, txt_clip.h)
             txt_clip = txt_clip.with_position(("center", y_pos))
             txt_clip = txt_clip.with_start(word_timing.start - segment.start)
             
             word_clips.append(txt_clip)
         
         if not word_clips:
+            if self.show_only_special_words:
+                return None
             return self.create_subtitle_clip(
                 segment.text, segment.duration, video_size, style
             )
@@ -692,7 +735,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
         
         txt_clip = TextClip(
             text=full_text,
-            font=style.font,
+            font=_safe_font(style.font),
             font_size=style.font_size,
             color=color,
             stroke_color=style.stroke_color,
@@ -742,8 +785,11 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
                 sub_clip = self.create_subtitle_clip(
                     segment.text, segment.duration, (video.w, video.h), style
                 )
-            
+            if sub_clip is None:
+                continue
             sub_clip = sub_clip.with_start(segment.start)
             subtitle_clips.append(sub_clip)
         
         return CompositeVideoClip([video] + subtitle_clips)
+'''
+# ---------- End commented-out animated renderer ----------

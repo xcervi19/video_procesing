@@ -19,6 +19,9 @@ export_settings:
   quality: 9  # 1-31, lower is better
 
 # Subtitle Settings
+# Vertical position: y=0 is TOP of frame, bottom = 100%.
+# position_y_percent: 0=top, 1=bottom (position of subtitle bottom edge). Overrides margin_bottom when set.
+#   e.g. 0.92 = 8% from bottom, 1.0 = flush to bottom. Omit to use margin_bottom (pixels).
 subtitle_settings:
   font: Arial-Bold
   font_size: 48
@@ -29,6 +32,7 @@ subtitle_settings:
     - center
     - bottom
   margin_bottom: 50
+  # position_y_percent: 0.92   # optional: 8% from bottom (uncomment to use)
   margin_sides: 40
   line_spacing: 8
   bg_color: null  # Set to color for background box
