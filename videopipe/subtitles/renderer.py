@@ -49,13 +49,18 @@ def _subtitle_top_y(style: "SubtitleStyle", frame_height: int, clip_height: int)
     """
     Vertical position (y) for the *top* of a subtitle clip.
     In video coordinates, y=0 is the TOP of the frame; bottom is frame_height.
+    Uses a minimum bottom margin that scales with font size so subtitles aren't cut off.
     """
+    # Minimum space from frame bottom: at least margin_bottom, or ~60% of font size
+    min_margin_bottom = max(style.margin_bottom, int(style.font_size * 0.6))
     if style.position_y_percent is not None and 0 <= style.position_y_percent <= 1:
         # position_y_percent: 0 = top, 1 = bottom (position of subtitle *bottom* edge)
-        # so top of clip = frame_height * position_y_percent - clip_height
-        return int(frame_height * style.position_y_percent - clip_height)
+        # Clamp so we never sit closer than min_margin_bottom to the bottom
+        subtitle_bottom = frame_height * style.position_y_percent
+        subtitle_bottom_safe = min(subtitle_bottom, frame_height - min_margin_bottom)
+        return int(subtitle_bottom_safe - clip_height)
     # Legacy: margin_bottom = pixels from frame bottom to subtitle bottom
-    return frame_height - style.margin_bottom - clip_height
+    return frame_height - min_margin_bottom - clip_height
 
 
 def _split_segments_by_word_count(
