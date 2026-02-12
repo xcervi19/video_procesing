@@ -16,17 +16,11 @@ from videopipe.subtitles.renderer import (
     AnimatedSubtitleRenderer,
     SubtitleStyle,
 )
-from videopipe.utils.fonts import get_font_path_for_config, find_font_file
 
 logger = logging.getLogger(__name__)
 
-# Fallback font paths when the configured font cannot be loaded (e.g. Arial-Bold on macOS)
-SUBTITLE_FONT_FALLBACKS = [
-    "/System/Library/Fonts/Helvetica.ttc",
-    "/System/Library/Fonts/Supplemental/Arial.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    "/System/Library/Fonts/SFNSMono.ttf",
-]
+# Project fonts directory (fonts/ at repo root)
+_FONTS_DIR = Path(__file__).parent.parent.parent / "fonts"
 
 
 class GenerateSubtitlesNode(Node):
@@ -138,7 +132,32 @@ class RenderSubtitlesNode(Node):
         )
         self.animated = animated
         self.style_config = style or {}
-    
+
+    @staticmethod
+    def _resolve_font(font_name: str) -> str:
+        """Resolve a font name to its absolute path inside the fonts/ directory.
+
+        Looks for .ttf / .otf files whose name matches *font_name* (case-
+        insensitive, spaces and hyphens stripped).  No system-font fallback,
+        no auto-download – the font **must** already exist in fonts/.
+
+        Raises ``FileNotFoundError`` if the font is not present.
+        """
+        normalized = font_name.lower().replace(" ", "").replace("-", "")
+
+        for path in _FONTS_DIR.iterdir():
+            if path.suffix.lower() not in (".ttf", ".otf"):
+                continue
+            stem = path.stem.lower().replace(" ", "").replace("-", "")
+            if stem == normalized or stem.startswith(normalized):
+                logger.info("Resolved font '%s' -> %s", font_name, path)
+                return str(path)
+
+        raise FileNotFoundError(
+            f"Font '{font_name}' not found in {_FONTS_DIR}. "
+            f"Place the .ttf/.otf file there before running the pipeline."
+        )
+
     def process(self, context: PipelineContext) -> NodeResult:
         try:
             clip = context.get_main_clip()
@@ -154,31 +173,11 @@ class RenderSubtitlesNode(Node):
                 **context.config.get("subtitle_settings", {}),
                 **self.style_config,
             }
-            # Resolve subtitle font to a path Pillow can open (avoid "cannot open resource")
+
+            # Resolve font – must exist in fonts/, no fallback
             font_name = style_dict.get("font", "Arial-Bold")
-            if callable(font_name):
-                font_name = "Arial-Bold"
-            resolved = get_font_path_for_config(font_name, auto_download=False)
-            if callable(resolved):
-                resolved = font_name
-            if resolved != font_name and Path(resolved).exists():
-                style_dict["font"] = str(resolved)
-            else:
-                found = find_font_file(font_name) or find_font_file("Arial") or find_font_file("Helvetica")
-                if found:
-                    style_dict["font"] = str(found)
-                else:
-                    for fallback in SUBTITLE_FONT_FALLBACKS:
-                        if Path(fallback).exists():
-                            style_dict["font"] = fallback
-                            logger.info(f"Subtitle font '{font_name}' not found, using fallback: {fallback}")
-                            break
-            # Ensure font is never a callable (would cause 'function' object has no attribute 'copy' in TextClip)
-            if callable(style_dict.get("font")):
-                style_dict["font"] = next(
-                    (f for f in SUBTITLE_FONT_FALLBACKS if Path(f).exists()),
-                    "/System/Library/Fonts/Helvetica.ttc",
-                )
+            style_dict["font"] = self._resolve_font(font_name)
+
             style = SubtitleStyle.from_dict(style_dict)
             word_highlight = context.config.get("spoken_word_highlight") or None
             if not isinstance(word_highlight, dict):

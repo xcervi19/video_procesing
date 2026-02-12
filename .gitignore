@@ -1,0 +1,149 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+eggs/
+wheels/
+*.whl
+sdist/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# uv
+uv.lock
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+dmypy.json
+dmypy.txt
+
+# ruff
+.ruff_cache/
+
+# ===== Video / Media artifacts =====
+# Common video formats
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+*.webm
+*.m4v
+*.mpg
+*.mpeg
+*.3gp
+
+# Audio files
+*.mp3
+*.wav
+*.aac
+*.flac
+*.ogg
+*.m4a
+*.wma
+
+# Image files (generated thumbnails, frames, etc.)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+
+# Subtitle files (generated)
+*.srt
+*.ass
+*.vtt
+*.sub
+
+# Temporary / intermediate media
+temp_*/
+tmp_*/
+output/
+output_*/
+renders/
+exports/
+
+# ===== ML / AI models =====
+*.pt
+*.pth
+*.onnx
+*.bin
+*.safetensors
+*.h5
+models/
+whisper_models/
+
+# Hugging Face cache
+.huggingface/
+
+# ===== Fonts (downloaded) =====
+fonts/*.ttf
+fonts/*.otf
+fonts/*.woff
+fonts/*.woff2
+!fonts/README.md
+
+# ===== Sound effects (downloaded/generated) =====
+effects_sound/*.mp3
+effects_sound/*.wav
+effects_sound/*.ogg
+!effects_sound/README.md
+
+# ===== IDE / Editor =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cursor/
+
+# ===== OS artifacts =====
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===== Environment / secrets =====
+.env
+.env.*
+!.env.example
+
+# ===== Misc =====
+*.log
+*.bak
+*.tmp
+*.temp

@@ -45,6 +45,32 @@ def _safe_font(font: Any) -> str:
     return _DEFAULT_FONT_FALLBACK
 
 
+def _make_text_clip(**kwargs: Any) -> TextClip:
+    """Create a TextClip with overdimensioned canvas (2x) to prevent PIL clipping.
+
+    PIL underestimates bounding boxes for stroked text and certain font
+    descenders.  We probe the auto-sized dimensions first, then re-render
+    into a 2x canvas so nothing is cut off.
+    """
+    # Probe: let PIL auto-calculate dimensions
+    _probe = TextClip(**kwargs)
+    safe_w = int(_probe.w * 2) if _probe.w else None
+    safe_h = int(_probe.h * 2) if _probe.h else None
+    _probe.close()
+
+    # Re-render with overdimensioned canvas
+    patched = dict(kwargs)
+    if "size" in patched:
+        # Caption mode – override both width and height
+        orig_w, orig_h = patched["size"]
+        patched["size"] = (safe_w or orig_w, safe_h)
+    else:
+        # Single-word mode (no wrapping) – set explicit size
+        patched["size"] = (safe_w, safe_h)
+
+    return TextClip(**patched)
+
+
 def _subtitle_top_y(style: "SubtitleStyle", frame_height: int, clip_height: int) -> int:
     """
     Vertical position (y) for the *top* of a subtitle clip.
@@ -210,8 +236,8 @@ class SubtitleRenderer:
         # Calculate max width for text wrapping
         max_width = width - (style.margin_sides * 2)
         
-        # Create text clip (font must be string path, never callable)
-        txt_clip = TextClip(
+        # Create text clip with overdimensioned canvas to prevent PIL clipping
+        txt_clip = _make_text_clip(
             text=text,
             font=_safe_font(style.font),
             font_size=style.font_size,
@@ -496,7 +522,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
                 continue
             if self.show_only_special_words and not self._is_special_word(display_word):
                 continue
-            word_clip = TextClip(
+            word_clip = _make_text_clip(
                 text=display_word,
                 font=_safe_font(style.font),
                 font_size=style.font_size,
@@ -580,7 +606,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
                 )
                 background_clips.append(bg_clip)
             
-            highlight_clip = TextClip(
+            highlight_clip = _make_text_clip(
                 text=item["word"],
                 font=_safe_font(style.font),
                 font_size=style.font_size,
@@ -640,7 +666,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
             stroke_color = effect_config.get("stroke_color", stroke_color)
             stroke_width = effect_config.get("stroke_width", stroke_width)
         
-        txt_clip = TextClip(
+        txt_clip = _make_text_clip(
             text=word,
             font=_safe_font(style.font),
             font_size=font_size,
@@ -770,7 +796,7 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
             # A more advanced approach would composite multiple TextClips
             pass
         
-        txt_clip = TextClip(
+        txt_clip = _make_text_clip(
             text=full_text,
             font=_safe_font(style.font),
             font_size=style.font_size,
