@@ -195,17 +195,17 @@ class RenderSubtitlesNode(Node):
             show_only_special = (
                 (context.config.get("subtitles") or {}).get("show_only_special_words", False)
             )
-            # Create renderer (animated branch commented – basic only until AnimatedSubtitleRenderer is restored)
-            # if use_animated:
-            #     renderer = AnimatedSubtitleRenderer(
-            #         style=style,
-            #         special_words=context.special_words,
-            #         word_highlight=word_highlight,
-            #         show_only_special_words=show_only_special,
-            #     )
-            # else:
-            #     renderer = SubtitleRenderer(style=style)
-            renderer = SubtitleRenderer(style=style)
+
+            # Choose renderer: animated (effects) vs basic (plain text only)
+            if use_animated:
+                renderer = AnimatedSubtitleRenderer(
+                    style=style,
+                    special_words=context.special_words,
+                    word_highlight=word_highlight,
+                    show_only_special_words=show_only_special,
+                )
+            else:
+                renderer = SubtitleRenderer(style=style)
 
             # Convert SubtitleEntry to TranscriptionSegment-like objects
             from videopipe.subtitles.whisper_stt import TranscriptionSegment, WordTiming
@@ -230,14 +230,10 @@ class RenderSubtitlesNode(Node):
                 )
                 segments.append(segment)
             
-            # Render subtitles (animate=... commented – basic renderer has no animate kwarg)
-            result_clip = renderer.render_subtitles(clip, segments, style=style)
-            # result_clip = renderer.render_subtitles(
-            #     clip,
-            #     segments,
-            #     style=style,
-            #     animate=use_animated if hasattr(renderer, 'render_subtitles') else False,
-            # )
+            # Render: AnimatedSubtitleRenderer uses animate=True for word highlight
+            result_clip = renderer.render_subtitles(
+                clip, segments, style=style, animate=use_animated
+            )
 
             context.set_main_clip(result_clip)
             

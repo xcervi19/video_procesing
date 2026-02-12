@@ -8,10 +8,19 @@ Provides:
 """
 
 from videopipe.subtitles.whisper_stt import WhisperTranscriber
-from videopipe.subtitles.renderer import SubtitleRenderer, AnimatedSubtitleRenderer
+from videopipe.subtitles.renderer import (
+    SubtitleRenderer,
+    AnimatedSubtitleRenderer,
+    SubtitleStyle,
+    SpokenWordHighlightStyle,
+    SPOKEN_WORD_HIGHLIGHT_PRESETS,
+)
 
 __all__ = [
     "WhisperTranscriber",
     "SubtitleRenderer",
     "AnimatedSubtitleRenderer",
+    "SubtitleStyle",
+    "SpokenWordHighlightStyle",
+    "SPOKEN_WORD_HIGHLIGHT_PRESETS",
 ]

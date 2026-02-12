@@ -339,7 +339,10 @@ class PreviewModeNode(Node):
             start = max(0, self.start_time)
             end = self.end_time if self.end_time is not None else clip.duration
             end = min(end, clip.duration)
-            
+            # #region agent log
+            _debug_log("C", "PreviewModeNode:computed_range", "Computed trim range", {"start": start, "end": end, "clip_duration": clip.duration, "end_time_param": self.end_time, "trim_is_full_video": abs(end - start - clip.duration) < 0.01})
+            # #endregion
+
             if start >= end:
                 logger.warning(f"Invalid preview range: {start}-{end}s, using full video")
                 return NodeResult.success_result(
@@ -361,7 +364,10 @@ class PreviewModeNode(Node):
                 logger.info(f"Preview scaled to {new_w}x{new_h} ({self.scale*100:.0f}%)")
             
             context.set_main_clip(preview_clip)
-            
+            # #region agent log
+            _debug_log("C", "PreviewModeNode:after_set", "Main clip set to preview subclip", {"preview_clip_duration": preview_clip.duration, "expected_duration": end - start})
+            # #endregion
+
             # Store preview info in context for ExportNode
             context.metadata["preview_mode"] = True
             context.metadata["preview_start"] = start
@@ -692,10 +698,13 @@ class ExportNode(Node):
         try:
             clip = context.get_main_clip()
             output_path = context.output_path
-            
+
             # Check if preview mode is active
             is_preview = context.metadata.get("preview_mode", False)
-            
+            # #region agent log
+            _debug_log("D", "ExportNode:process:entry", "ExportNode received clip", {"clip_duration": clip.duration if clip else None, "is_preview": is_preview})
+            # #endregion
+
             # Get presets
             presets = get_available_presets()
             

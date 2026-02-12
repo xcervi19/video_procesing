@@ -63,10 +63,13 @@ spoken_word_highlight:
   enabled: true
   effect: soft_pill   # Highlight style for current word (e.g. soft_pill)
 
-# Subtitle line font (same as neon for consistent look)
+# Subtitle line font (same as neon for consistent look). Bigger font + more space.
 subtitle_settings:
   font: "Bebas Neue"
-  font_size: 48
+  font_size: 100
+  margin_bottom: 100
+  margin_sides: 56
+  line_spacing: 12
   position_y_percent: 0.5
   max_words_per_subtitle: 4   # show 2–5 words on screen at a time
 # ============================================================

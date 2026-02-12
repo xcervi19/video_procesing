@@ -140,39 +140,38 @@ class SubtitleStyle:
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
-# ---------- Not used by basic renderer (commented out) ----------
-# @dataclass
-# class SpokenWordHighlightStyle:
-#     """Styling options for spoken-word highlighting."""
-#     bg_color: str = "#FDE68A"
-#     bg_opacity: float = 0.85
-#     text_color: str = "#111827"
-#     stroke_color: Optional[str] = None
-#     stroke_width: int = 0
-#     padding_x: int = 12
-#     padding_y: int = 4
-#     corner_radius: int = 8
-#     reveal_mode: str = "full"
-#
-#     @classmethod
-#     def from_dict(cls, data: dict[str, Any]) -> SpokenWordHighlightStyle:
-#         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
-#
-#
-# SPOKEN_WORD_HIGHLIGHT_PRESETS: dict[str, dict[str, Any]] = {
-#     "soft_pill": {
-#         "bg_color": "#FDE68A",
-#         "bg_opacity": 0.85,
-#         "text_color": "#111827",
-#         "stroke_color": None,
-#         "stroke_width": 0,
-#         "padding_x": 12,
-#         "padding_y": 4,
-#         "corner_radius": 8,
-#         "reveal_mode": "full",
-#     },
-# }
-# ---------- End non-basic ----------
+# ---------- Spoken-word highlight (used by AnimatedSubtitleRenderer) ----------
+@dataclass
+class SpokenWordHighlightStyle:
+    """Styling options for spoken-word highlighting (current word emphasis)."""
+    bg_color: str = "#FDE68A"
+    bg_opacity: float = 0.85
+    text_color: str = "#111827"
+    stroke_color: Optional[str] = None
+    stroke_width: int = 0
+    padding_x: int = 12
+    padding_y: int = 4
+    corner_radius: int = 8
+    reveal_mode: str = "full"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "SpokenWordHighlightStyle":
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+SPOKEN_WORD_HIGHLIGHT_PRESETS: dict[str, dict[str, Any]] = {
+    "soft_pill": {
+        "bg_color": "#FDE68A",
+        "bg_opacity": 0.85,
+        "text_color": "#111827",
+        "stroke_color": None,
+        "stroke_width": 0,
+        "padding_x": 12,
+        "padding_y": 4,
+        "corner_radius": 8,
+        "reveal_mode": "full",
+    },
+}
 
 
 class SubtitleRenderer:
@@ -242,17 +241,11 @@ class SubtitleRenderer:
         video: VideoClip,
         segments: list[TranscriptionSegment],
         style: Optional[SubtitleStyle] = None,
+        animate: bool = False,
     ) -> VideoClip:
         """
         Render subtitles onto a video clip.
-        
-        Args:
-            video: The base video clip
-            segments: Transcription segments with timing
-            style: Optional style override
-            
-        Returns:
-            Video clip with subtitles overlaid
+        Base implementation ignores animate (basic renderer only).
         """
         style = style or self.style
         if style.max_words_per_subtitle is not None and style.max_words_per_subtitle >= 1:
@@ -268,17 +261,23 @@ class SubtitleRenderer:
             )
             txt_clip = txt_clip.with_start(segment.start)
             subtitle_clips.append(txt_clip)
-        
+
         # Composite all subtitle clips onto video
-        return CompositeVideoClip([video] + subtitle_clips)
+        composite = CompositeVideoClip([video] + subtitle_clips)
+        # Cap duration to video length (e.g. preview trim); segments may span full source
+        if composite.duration > video.duration:
+            composite = composite.subclipped(0, video.duration)
+        return composite
 
 
-# ---------- Animated renderer commented out: use basic renderer only ----------
-AnimatedSubtitleRenderer = SubtitleRenderer  # alias so imports still work
-'''
+# ---------- Animated renderer: word-by-word + spoken-word highlight ----------
+# Use when config has spoken_word_highlight.enabled or animated=True:
+# - Spoken-word highlight: current word gets a background pill/emphasis
+# - Special words (subtitles.special_words) can get custom effects
+# - SubtitleRenderer = plain text only; AnimatedSubtitleRenderer = effects
 class AnimatedSubtitleRenderer(SubtitleRenderer):
     """
-    Advanced subtitle renderer with word-by-word animations.
+    Subtitle renderer with effects: spoken-word highlight and special-word styling.
     """
     def __init__(
         self,
@@ -808,10 +807,12 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
         """
         if not animate:
             return super().render_subtitles(video, segments, style)
-        
+
         style = style or self.style
+        if style.max_words_per_subtitle is not None and style.max_words_per_subtitle >= 1:
+            segments = _split_segments_by_word_count(segments, style.max_words_per_subtitle)
         subtitle_clips = []
-        
+
         for segment in segments:
             if segment.words:
                 # Use animated rendering
@@ -827,7 +828,8 @@ class AnimatedSubtitleRenderer(SubtitleRenderer):
                 continue
             sub_clip = sub_clip.with_start(segment.start)
             subtitle_clips.append(sub_clip)
-        
-        return CompositeVideoClip([video] + subtitle_clips)
-'''
-# ---------- End commented-out animated renderer ----------
+
+        composite = CompositeVideoClip([video] + subtitle_clips)
+        if composite.duration > video.duration:
+            composite = composite.subclipped(0, video.duration)
+        return composite

@@ -241,9 +241,11 @@ class Pipeline:
                 results[node_name] = result
                 
                 # #region agent log
-                _debug_log("H", "pipeline.py:after_execute", "Node executed", {"node_name": node_name, "success": result.success, "status": result.status.value if hasattr(result.status, 'value') else str(result.status)})
+                main_clip = context.get_main_clip()
+                main_dur = float(main_clip.duration) if main_clip and hasattr(main_clip, "duration") else None
+                _debug_log("H", "pipeline.py:after_execute", "Node executed", {"node_name": node_name, "success": result.success, "main_clip_duration_after": main_dur})
                 # #endregion
-                
+
                 # Store output in context for other nodes to use
                 if result.output is not None:
                     context.store_node_output(node_name, result.output)

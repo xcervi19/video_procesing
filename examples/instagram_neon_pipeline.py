@@ -207,7 +207,7 @@ def create_pipeline_from_config(config_path: Path):
     
     if preview_enabled:
         # #region agent log
-        _pdbg("B", "pipeline:preview_node_adding", "Adding PreviewModeNode", {"start_time": preview_config.get("start_time", 0.0), "end_time": preview_config.get("end_time")})
+        _pdbg("B", "pipeline:preview_node_adding", "Adding PreviewModeNode", {"start_time": preview_config.get("start_time", 0.0), "end_time": preview_config.get("end_time"), "end_time_is_none": preview_config.get("end_time") is None})
         # #endregion
         preview_node = PreviewModeNode(
             enabled=True,
