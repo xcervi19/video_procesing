@@ -18,7 +18,7 @@ output_path: /Users/karel.cervicek/Documents/media/marketing/prispevek7/en/outpu
 # ============================================================
 # Set preview_mode: true to render only a portion of the video
 # Output will be: output_preview.mp4 (fast H.264 instead of ProRes)
-preview_mode: false  # Change to true for quick previews
+preview_mode: true  # Change to true for quick previews
 
 preview:
   start_time: 0.0     # Start from this time (seconds)
@@ -70,7 +70,7 @@ subtitle_settings:
   margin_bottom: 100
   margin_sides: 56
   line_spacing: 12
-  position_y_percent: 0.85
+  position_y_percent: 0.5
   max_words_per_subtitle: 4   # show 2–5 words on screen at a time
 # ============================================================
 # TEXT ANIMATION SETTINGS
