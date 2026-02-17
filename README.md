@@ -1,4 +1,5 @@
 # VideoPipe
+uv run python examples/instagram_neon_pipeline.py --config configs/my_instagram_edit.yaml
 
 **Professional Video Processing Pipeline for Instagram Content**
 

@@ -54,19 +54,19 @@ def _make_text_clip(**kwargs: Any) -> TextClip:
     """
     # Probe: let PIL auto-calculate dimensions
     _probe = TextClip(**kwargs)
-    safe_w = int(_probe.w * 2) if _probe.w else None
     safe_h = int(_probe.h * 2) if _probe.h else None
     _probe.close()
 
-    # Re-render with overdimensioned canvas
+    # Re-render with overdimensioned height only (width stays original
+    # so word spacing is not inflated).
     patched = dict(kwargs)
     if "size" in patched:
-        # Caption mode – override both width and height
-        orig_w, orig_h = patched["size"]
-        patched["size"] = (safe_w or orig_w, safe_h)
+        # Caption mode – keep original width, overdimension height
+        orig_w, _orig_h = patched["size"]
+        patched["size"] = (orig_w, safe_h)
     else:
-        # Single-word mode (no wrapping) – set explicit size
-        patched["size"] = (safe_w, safe_h)
+        # Single-word mode – no width change, only add height room
+        patched["size"] = (None, safe_h)
 
     return TextClip(**patched)
 
