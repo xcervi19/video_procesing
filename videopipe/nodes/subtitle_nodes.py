@@ -45,13 +45,47 @@ class GenerateSubtitlesNode(Node):
         self.whisper_model = whisper_model
         self.language = language
     
+    def _resolve_audio_path(self, context: PipelineContext) -> Path:
+        """Pick the right audio source for transcription.
+
+        Split-screen pipelines honour ``split_screen.audio_source``:
+          * "upper"  → first input file  (index 0)
+          * "bottom" → second input file (index 1)
+          * "both"   → export mixed audio from the composite clip to a temp file
+
+        Non-split-screen pipelines (single video) fall back to the first input.
+        """
+        cfg = getattr(context, "config", None) or {}
+        ss_cfg = cfg.get("split_screen") or {}
+
+        if ss_cfg.get("enabled") and len(context.input_files) >= 2:
+            audio_source = ss_cfg.get("audio_source", "upper")
+
+            if audio_source == "bottom":
+                return context.input_files[1]
+
+            if audio_source == "both":
+                main_clip = context.get_main_clip()
+                if main_clip and main_clip.audio:
+                    import tempfile
+                    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+                    tmp.close()
+                    tmp_path = Path(tmp.name)
+                    logger.info(f"Exporting composite audio to {tmp_path}")
+                    main_clip.audio.write_audiofile(
+                        str(tmp_path), fps=44100, logger=None,
+                    )
+                    return tmp_path
+
+            return context.input_files[0]
+
+        if not context.input_files:
+            raise ValueError("No input files for transcription")
+        return context.input_files[0]
+
     def process(self, context: PipelineContext) -> NodeResult:
         try:
-            # Get the first input file for transcription
-            if not context.input_files:
-                return NodeResult.failure_result(ValueError("No input files"))
-            
-            input_path = context.input_files[0]
+            input_path = self._resolve_audio_path(context)
             
             logger.info(f"Generating subtitles with Whisper ({self.whisper_model})")
             logger.info(f"Input: {input_path}")

@@ -82,3 +82,5 @@ neon_settings:
 # Export
 export:
   preset: prores_422_hq
+  also_export:
+    - instagram

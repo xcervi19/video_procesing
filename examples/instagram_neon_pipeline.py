@@ -416,8 +416,9 @@ def create_pipeline_from_config(config_path: Path):
     export_config = config.get("export", {})
     export_node = ExportNode(
         preset=export_config.get("preset", "prores_422_hq"),
+        also_export=export_config.get("also_export", []),
     )
-    export_node._dependencies = [last_node]  # Chain to previous (always last)
+    export_node._dependencies = [last_node]
     pipeline.add_node(export_node)
     
     return pipeline, context

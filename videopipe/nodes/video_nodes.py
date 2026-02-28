@@ -830,15 +830,17 @@ class ExportNode(Node):
         preset: str = "prores_422_hq",
         fps: Optional[float] = None,
         preview_preset: str = "h264_fast",
+        also_export: Optional[list[str]] = None,
     ):
         super().__init__(
             name="export",
             config=config,
-            dependencies=["load_videos"],  # Must run after videos are loaded
+            dependencies=["load_videos"],
         )
         self.preset_name = preset
         self.fps = fps
         self.preview_preset = preview_preset
+        self.also_export = also_export or []
     
     def validate(self, context: PipelineContext) -> bool:
         if context.output_path is None:
@@ -908,10 +910,25 @@ class ExportNode(Node):
             
             # Export
             result_path = exporter.export(clip, output_path, fps=fps)
-            
+
+            extra_paths = []
+            if not is_preview and self.also_export:
+                for extra_preset_name in self.also_export:
+                    extra_preset = presets.get(extra_preset_name)
+                    if extra_preset is None:
+                        logger.warning(f"also_export preset '{extra_preset_name}' not found, skipping")
+                        continue
+                    suffix = f"_{extra_preset_name}"
+                    extra_path = output_path.parent / f"{output_path.stem}{suffix}.{extra_preset.container}"
+                    logger.info(f"Also exporting: {extra_path} (preset: {extra_preset.name})")
+                    extra_exporter = VideoExporter(preset=extra_preset)
+                    extra_exporter.export(clip, extra_path, fps=fps)
+                    extra_paths.append(str(extra_path))
+
             return NodeResult.success_result(
                 output=result_path,
                 output_path=str(result_path),
+                also_exported=extra_paths,
                 preset=preset.name,
                 duration=clip.duration,
                 is_preview=is_preview,
