@@ -1,0 +1,84 @@
+# Instagram Split Screen - prispevek8
+#
+# Renders one video: upper (70%) + bottom (30%), center-cropped to fit.
+# Paths can be files or directories (first video in dir is used).
+#
+# Different lengths: duration_mode "shortest" = output length = shorter clip;
+# "longest" = longer clip, shorter one frozen on last frame to match.
+
+# Output (required)
+output_path: /Users/karel.cervicek/Documents/media/marketing/prispevek8/output_split.mov
+
+# Placeholder when using split_screen (actual inputs come from split_screen section)
+input_files: []
+
+# ============================================================
+# SPLIT SCREEN - two videos stacked (upper 70% / bottom 30%)
+# ============================================================
+split_screen:
+  enabled: true
+  upper_video: /Users/karel.cervicek/Documents/media/marketing/prispevek8/render/timeline1.mov
+  bottom_video: /Users/karel.cervicek/Documents/media/marketing/prispevek8/render/timeline2.mov
+  upper_percent: 60
+  # Same length: "shortest" = trim to shorter clip; "longest" = freeze shorter on last frame
+  duration_mode: shortest
+  # Output ratio (9:16 portrait for Reels/Shorts); pipeline defaults to this if omitted
+  target_size: [1080, 1920]
+  # Shift crop relative to center (percent of band size). Positive y = more headroom above (e.g. talking head)
+  upper_shift: [0, 0.05]   # [x%, y%] – e.g. 5% down to get more space above head
+  bottom_shift: [0, 0]
+  # Audio source: "upper", "bottom", or "both" (mix both tracks)
+  audio_source: both
+
+# ============================================================
+# PREVIEW MODE (optional)
+# ============================================================
+preview_mode: false
+preview:
+  start_time: 0.0
+  end_time: 20.0
+  scale: null
+
+# Crop (optional)
+crop:
+  top: 0
+  bottom: 0
+  left: 0
+  right: 0
+
+in_video_transitions: []
+
+# ============================================================
+# SUBTITLES (auto-generated from speech via Whisper)
+# ============================================================
+whisper_model: medium
+
+subtitles:
+  special_words: {}
+  show_only_special_words: false
+  use_overlay_for_special_words: false
+
+spoken_word_highlight:
+  enabled: true
+  effect: soft_pill
+
+subtitle_settings:
+  font: "Bebas Neue"
+  font_size: 80
+  margin_bottom: 80
+  margin_sides: 40
+  line_spacing: 8
+  position_y_percent: 0.85
+  max_words_per_subtitle: 4
+
+text_overlays: []
+sound_effects:
+  sounds: []
+
+neon_settings:
+  font: "Bebas Neue"
+  font_size: 72
+
+# Export
+export:
+  preset: prores_422_hq

@@ -5,10 +5,13 @@ Video processing pipeline nodes.
 from __future__ import annotations
 
 import logging
+import math
 import json
 import time
 from pathlib import Path
 from typing import Any, Optional
+
+from moviepy import CompositeVideoClip
 
 from videopipe.core.node import Node, NodeResult
 from videopipe.core.context import PipelineContext
@@ -264,6 +267,167 @@ class CropNode(Node):
             
         except Exception as e:
             return NodeResult.failure_result(e)
+
+
+class SplitScreenNode(Node):
+    """
+    Composite two videos into one: upper (e.g. 70%) and bottom (e.g. 30%).
+
+    Alignment and framing (option A – geometric center):
+    - Both videos are aligned to the same output width; each band is full width.
+    - Each video is scaled so it fully fills its band (maximum possible use of the
+      source to fill the area), then center-cropped so the geometric center of
+      the video is kept. No letterboxing; the band is always filled.
+    - Handles different lengths via duration_mode: 'shortest' (trim to shorter)
+      or 'longest' (freeze shorter on last frame).
+    """
+
+    def __init__(
+        self,
+        config: Optional[dict[str, Any]] = None,
+        upper_percent: float = 70.0,
+        duration_mode: str = "shortest",
+        target_size: Optional[tuple[int, int]] = None,
+    ):
+        super().__init__(
+            name="split_screen",
+            config=config,
+            dependencies=["load_videos"],
+        )
+        self.upper_percent = upper_percent
+        self.duration_mode = duration_mode
+        self.target_size = target_size
+
+    def _from_config(self, key: str, default: Any) -> Any:
+        if not self.config:
+            return default
+        ss = self.config.get("split_screen") or {}
+        if key == "upper_percent":
+            return ss.get("upper_percent", self.upper_percent)
+        if key == "duration_mode":
+            return ss.get("duration_mode", self.duration_mode)
+        if key == "target_size":
+            raw = ss.get("target_size")
+            if raw and len(raw) == 2:
+                return tuple(int(x) for x in raw)
+            return self.target_size
+        return default
+
+    def _scale_fill_center_crop(
+        self,
+        clip,
+        target_w: int,
+        target_h: int,
+        shift_x_percent: float = 0.0,
+        shift_y_percent: float = 0.0,
+    ):
+        """Scale clip to fill target area completely, then center-crop to exact size.
+
+        Works for any ratio combination (landscape/portrait source into any band).
+        Uses a single uniform scale factor so aspect ratio is preserved perfectly
+        and MoviePy cannot introduce letterboxing."""
+        scale = max(target_w / clip.w, target_h / clip.h)
+        resized = clip.resized(scale)
+
+        x_offset = (resized.w - target_w) // 2 - int(shift_x_percent * target_w)
+        y_offset = (resized.h - target_h) // 2 - int(shift_y_percent * target_h)
+        x_offset = max(0, min(resized.w - target_w, x_offset))
+        y_offset = max(0, min(resized.h - target_h, y_offset))
+
+        return resized.cropped(
+            x1=x_offset,
+            y1=y_offset,
+            x2=x_offset + target_w,
+            y2=y_offset + target_h,
+        )
+
+    def validate(self, context: PipelineContext) -> bool:
+        c0 = context.get_clip("input_0")
+        c1 = context.get_clip("input_1")
+        if c0 is None or c1 is None:
+            logger.error("SplitScreenNode requires exactly two clips (input_0, input_1)")
+            return False
+        return True
+
+    def process(self, context: PipelineContext) -> NodeResult:
+        upper_clip = context.get_clip("input_0")
+        bottom_clip = context.get_clip("input_1")
+        if upper_clip is None or bottom_clip is None:
+            return NodeResult.failure_result(
+                ValueError("SplitScreenNode needs input_0 and input_1")
+            )
+
+        upper_pct = self._from_config("upper_percent", self.upper_percent)
+        duration_mode = self._from_config("duration_mode", self.duration_mode)
+        target_size = self._from_config("target_size", self.target_size)
+
+        upper_pct = max(10, min(90, upper_pct)) / 100.0
+
+        if target_size:
+            out_w, out_h = target_size
+        else:
+            out_w = upper_clip.w
+            out_h = int(upper_clip.h / upper_pct)
+
+        h_upper = int(out_h * upper_pct)
+        h_bottom = out_h - h_upper
+
+        # Align durations
+        d_upper = upper_clip.duration
+        d_bottom = bottom_clip.duration
+        if duration_mode == "shortest":
+            duration = min(d_upper, d_bottom)
+            if d_upper > duration:
+                upper_clip = upper_clip.subclipped(0, duration)
+            if d_bottom > duration:
+                bottom_clip = bottom_clip.subclipped(0, duration)
+        else:
+            duration = max(d_upper, d_bottom)
+            if d_upper < duration:
+                from moviepy import ImageClip, concatenate_videoclips
+                frame = upper_clip.get_frame(max(0, d_upper - 0.04))
+                freeze = ImageClip(frame).with_duration(duration - d_upper).with_fps(getattr(upper_clip, "fps", None) or 30)
+                upper_clip = concatenate_videoclips([upper_clip, freeze], method="compose")
+            if d_bottom < duration:
+                from moviepy import ImageClip, concatenate_videoclips
+                frame = bottom_clip.get_frame(max(0, d_bottom - 0.04))
+                freeze = ImageClip(frame).with_duration(duration - d_bottom).with_fps(getattr(bottom_clip, "fps", None) or 30)
+                bottom_clip = concatenate_videoclips([bottom_clip, freeze], method="compose")
+
+        # Read optional per-band shift from config
+        ss_cfg = self.config.get("split_screen", {}) if self.config else {}
+        upper_shift = ss_cfg.get("upper_shift", [0, 0])
+        bottom_shift = ss_cfg.get("bottom_shift", [0, 0])
+
+        upper_fit = self._scale_fill_center_crop(upper_clip, out_w, h_upper, upper_shift[0], upper_shift[1])
+        bottom_fit = self._scale_fill_center_crop(bottom_clip, out_w, h_bottom, bottom_shift[0], bottom_shift[1])
+
+        upper_fit = upper_fit.with_position((0, 0))
+        bottom_fit = bottom_fit.with_position((0, h_upper))
+
+        composite = CompositeVideoClip(
+            [upper_fit, bottom_fit],
+            size=(out_w, out_h),
+        ).with_duration(duration)
+
+        audio_source = ss_cfg.get("audio_source", "upper")
+        if audio_source == "both" and upper_clip.audio and bottom_clip.audio:
+            from moviepy import CompositeAudioClip
+            composite = composite.with_audio(CompositeAudioClip([upper_clip.audio, bottom_clip.audio]))
+        elif audio_source == "bottom" and bottom_clip.audio:
+            composite = composite.with_audio(bottom_clip.audio)
+        elif upper_clip.audio:
+            composite = composite.with_audio(upper_clip.audio)
+
+        context.set_main_clip(composite)
+        logger.info(
+            f"Split screen: {out_w}x{out_h} (upper {upper_pct*100:.0f}% / bottom {(1-upper_pct)*100:.0f}%), duration={duration:.2f}s ({duration_mode})"
+        )
+        return NodeResult.success_result(
+            output=composite,
+            resolution=f"{out_w}x{out_h}",
+            duration=duration,
+        )
 
 
 class PreviewModeNode(Node):

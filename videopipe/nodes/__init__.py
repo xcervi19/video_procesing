@@ -7,6 +7,7 @@ a specific processing step.
 
 from videopipe.nodes.video_nodes import (
     LoadVideosNode,
+    SplitScreenNode,
     CropNode,
     PreviewModeNode,
     InVideoTransitionNode,
@@ -29,6 +30,7 @@ from videopipe.nodes.effect_nodes import (
 
 __all__ = [
     "LoadVideosNode",
+    "SplitScreenNode",
     "CropNode",
     "PreviewModeNode",
     "InVideoTransitionNode",

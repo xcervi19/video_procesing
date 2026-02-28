@@ -51,6 +51,7 @@ from videopipe.core.pipeline import Pipeline
 from videopipe.core.context import PipelineContext
 from videopipe.nodes import (
     LoadVideosNode,
+    SplitScreenNode,
     CropNode,
     PreviewModeNode,
     InVideoTransitionNode,
@@ -61,6 +62,21 @@ from videopipe.nodes import (
     RenderSubtitlesNode,
 )
 from videopipe.utils.fonts import get_font_path_for_config
+
+VIDEO_EXTENSIONS = (".mov", ".mp4", ".MOV", ".MP4", ".avi", ".mkv", ".webm")
+
+
+def _resolve_video_path(path: Path) -> Path:
+    """Return path if it's a file; if it's a directory, return first video file inside it."""
+    path = Path(path)
+    if path.is_file():
+        return path
+    if path.is_dir():
+        for f in sorted(path.iterdir()):
+            if f.suffix in VIDEO_EXTENSIONS:
+                return f
+        raise FileNotFoundError(f"No video file found in directory: {path}")
+    raise FileNotFoundError(f"Not a file or directory: {path}")
 
 
 def create_pipeline_from_args(args):
@@ -157,8 +173,15 @@ def create_pipeline_from_config(config_path: Path):
     debug_log("A", "instagram_neon_pipeline.py:119", "YAML parsed input_files", {"raw_input_files": config.get("input_files", []), "type": str(type(config.get("input_files", [])))})
     # #endregion
     
-    # Create context
-    input_paths = [Path(f) for f in config.get("input_files", [])]
+    # Create context: use split_screen paths when enabled, else input_files
+    split_cfg = config.get("split_screen") or {}
+    if split_cfg.get("enabled"):
+        upper_path = _resolve_video_path(Path(split_cfg["upper_video"]))
+        bottom_path = _resolve_video_path(Path(split_cfg["bottom_video"]))
+        input_paths = [upper_path, bottom_path]
+        print(f"Split screen: upper={upper_path.name}, bottom={bottom_path.name}")
+    else:
+        input_paths = [Path(f) for f in config.get("input_files", [])]
     
     # #region agent log
     debug_log("C", "instagram_neon_pipeline.py:123", "Path objects created", {"paths": [str(p) for p in input_paths], "exists": [p.exists() for p in input_paths]})
@@ -196,6 +219,24 @@ def create_pipeline_from_config(config_path: Path):
     # 1. Always load videos first
     pipeline.add_node(LoadVideosNode())
     last_node = "load_videos"
+    
+    # 1b. Split screen (if enabled): composite upper + bottom into one clip
+    if split_cfg.get("enabled"):
+        # Correct ratio format: default to Instagram portrait (1080x1920) when not set
+        raw_size = split_cfg.get("target_size")
+        if raw_size and len(raw_size) == 2:
+            target_size = tuple(int(x) for x in raw_size)
+        else:
+            target_size = (1080, 1920)  # 9:16 portrait for Reels/Shorts
+        split_node = SplitScreenNode(
+            config=config,
+            upper_percent=split_cfg.get("upper_percent", 70),
+            duration_mode=split_cfg.get("duration_mode", "shortest"),
+            target_size=target_size,
+        )
+        split_node._dependencies = [last_node]
+        pipeline.add_node(split_node)
+        last_node = "split_screen"
     
     # 2. Preview mode (if enabled, trims video early for fast rendering)
     preview_config = config.get("preview", {})
@@ -244,8 +285,9 @@ def create_pipeline_from_config(config_path: Path):
         pipeline.add_node(transition_node)
         last_node = "in_video_transition"
     
-    # 4b. Subtitles when spoken_word_highlight or text_overlays sync_to_titles
-    need_subtitles = bool(config.get("spoken_word_highlight"))
+    # 4b. Subtitles when spoken_word_highlight.enabled or text_overlays sync_to_titles
+    swh = config.get("spoken_word_highlight") or {}
+    need_subtitles = swh.get("enabled", False) if isinstance(swh, dict) else bool(swh)
     if not need_subtitles:
         for ov in config.get("text_overlays", []):
             if ov.get("sync_to_titles"):
